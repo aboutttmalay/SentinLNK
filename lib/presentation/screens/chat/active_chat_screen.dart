@@ -1,7 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:intl/intl.dart'; // Add "intl: ^0.19.0" to pubspec.yaml if needed
 import '../../../core/theme/app_colors.dart';
+import '../../../core/storage/storage_service.dart';
+import '../../../data/models/chat_message.dart';
+import '../../../core/security/security_manager.dart'; 
 
 class ActiveChatScreen extends StatefulWidget {
   final VoidCallback onBack;
@@ -15,32 +19,82 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   
-  // Mock Messages Data
-  final List<Map<String, dynamic>> _messages = [
-    {"text": "Sector 4 clear. Moving to extraction point.", "isMe": false, "time": DateFormat.Hm().format(DateTime.now())},
-    {"text": "Copy. Holding position at WP-Charlie.", "isMe": true, "time": DateFormat.Hm().format(DateTime.now())},
-  ];
+  // We start with an empty list, and load from DB
+  List<ChatMessage> _messages = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMessages();
+  }
+
+  void _loadMessages() {
+    // Load history from Hive
+    setState(() {
+      _messages = StorageService.getHistory();
+    });
+    // Scroll to bottom after loading
+    Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
+  }
 
   void _sendMessage() {
-    if (_textController.text.trim().isEmpty) return;
+    String rawText = _textController.text.trim();
+    if (rawText.isEmpty) return;
+
+    // --- STEP 1: MILITARY ENCRYPTION (AES-256) ---
+    // We encrypt the data to simulate secure transmission.
+    var encryptedBytes = SecurityManager.encryptMessage(rawText);
     
+    // We print the "Secret Code" to the Console so you can show the Judges.
+    String debugBase64 = base64Encode(encryptedBytes);
+    print("------------------------------------------------");
+    print("TACTICAL LOG // SECURE TRANSMISSION:");
+    print("Plaintext: $rawText");
+    print("AES-256 Ciphertext: $debugBase64"); 
+    print("------------------------------------------------");
+
+    // --- STEP 2: DECRYPTION & STORAGE ---
+    // In a real scenario, the *receiver* does this. 
+    // Ideally, you store the DECRYPTED text for your own history log.
+    
+    // Decrypt back to text (Simulating reception)
+    String decryptedText = SecurityManager.decryptMessage(encryptedBytes);
+    String timeNow = DateFormat.Hm().format(DateTime.now());
+
+    // Save to Offline Database (Hive)
+    StorageService.saveMessage(decryptedText, true, timeNow);
+
+    // --- STEP 3: UPDATE UI ---
     setState(() {
-      _messages.add({
-        "text": _textController.text,
-        "isMe": true,
-        "time": DateFormat.Hm().format(DateTime.now()), // Dynamic time using intl package
-      });
+      _messages.add(ChatMessage(
+        text: decryptedText, 
+        isMe: true, 
+        timestamp: timeNow
+      ));
     });
+    
     _textController.clear();
     
-    // Auto-scroll to bottom
+    // Auto-scroll
     Future.delayed(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOut,
       );
-    });
+    }
   }
 
   @override
@@ -70,20 +124,14 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text("Alpha Squad", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                      Row(
-                        children: [
-                          Icon(LucideIcons.lock, size: 10, color: AppColors.accent),
-                          SizedBox(width: 4),
-                          Text("ENCRYPTED MESH LINK", style: TextStyle(color: AppColors.accent, fontSize: 10)),
-                        ],
-                      ),
+                      Text("ENCRYPTED MESH LOG", style: TextStyle(color: AppColors.accent, fontSize: 10)),
                     ],
                   )
                 ],
               ),
             ),
 
-            // 2. Messages List
+            // 2. Messages List (Updated for Hive Object)
             Expanded(
               child: ListView.builder(
                 controller: _scrollController,
@@ -91,31 +139,23 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
                 itemCount: _messages.length,
                 itemBuilder: (context, index) {
                   final msg = _messages[index];
-                  final isMe = msg['isMe'] as bool;
                   
                   return Align(
-                    alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                    alignment: msg.isMe ? Alignment.centerRight : Alignment.centerLeft,
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.all(12),
                       constraints: const BoxConstraints(maxWidth: 260),
                       decoration: BoxDecoration(
-                        color: isMe ? AppColors.primary : AppColors.surface,
-                        borderRadius: BorderRadius.only(
-                          topLeft: const Radius.circular(12),
-                          topRight: const Radius.circular(12),
-                          bottomLeft: Radius.circular(isMe ? 12 : 0),
-                          bottomRight: Radius.circular(isMe ? 0 : 12),
-                        ),
+                        color: msg.isMe ? AppColors.primary : AppColors.surface,
+                        borderRadius: BorderRadius.circular(12),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (!isMe) 
-                            const Text("[Encrypted]", style: TextStyle(color: AppColors.accent, fontSize: 9, fontFamily: 'Roboto Mono')),
-                          Text(msg['text'], style: const TextStyle(fontSize: 14)),
+                          Text(msg.text, style: const TextStyle(fontSize: 14)),
                           const SizedBox(height: 4),
-                          Text(msg['time'], style: const TextStyle(fontSize: 9, color: Colors.white38)),
+                          Text(msg.timestamp, style: const TextStyle(fontSize: 9, color: Colors.white38)),
                         ],
                       ),
                     ),
