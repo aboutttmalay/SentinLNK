@@ -1,6 +1,6 @@
 {
-    "name": "sentinlnk_app",
-    "short_name": "sentinlnk_app",
+    "name": "SentinLNK",
+    "short_name": "SentinLNK",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
