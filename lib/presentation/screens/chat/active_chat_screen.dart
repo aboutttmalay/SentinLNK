@@ -164,7 +164,7 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
               ),
             ),
 
-            // 3. Input Area
+            // 4. Input Area
             Container(
               padding: const EdgeInsets.all(16),
               color: AppColors.surface,
