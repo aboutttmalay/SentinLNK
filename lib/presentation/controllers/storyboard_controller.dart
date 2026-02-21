@@ -32,6 +32,9 @@ class _StoryboardControllerState extends State<StoryboardController> {
   void _finishConnection() => setState(() => _currentState = AppState.connected);
   void _openChat() => setState(() => _currentState = AppState.chat);
   void _goBackToDashboard() => setState(() => _currentState = AppState.connected);
+  
+  // ADDED: Function to handle disconnection
+  void _disconnectNode() => setState(() => _currentState = AppState.disconnected);
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +58,8 @@ class _StoryboardControllerState extends State<StoryboardController> {
       case AppState.disconnected:
         return HomeScreen(
           isConnected: false, 
-          onAction: _startScan
+          onAction: _startScan,
+          onDisconnect: null, // No disconnect action needed here
         );
         
       case AppState.scanning:
@@ -67,7 +71,8 @@ class _StoryboardControllerState extends State<StoryboardController> {
       case AppState.connected:
         return HomeScreen(
           isConnected: true, 
-          onAction: _openChat
+          onAction: _openChat,
+          onDisconnect: _disconnectNode, // Pass the disconnect action
         );
         
       case AppState.chat:

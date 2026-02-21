@@ -6,10 +6,14 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../../core/theme/app_colors.dart';
+import '../scanning/scan_screen.dart';
 
 class ScanScreen extends StatefulWidget {
   final VoidCallback onConnect;
   final VoidCallback onBack;
+
+  // 1. TACTICAL MEMORY: Remembers the last connected node
+  static BluetoothDevice? lastKnownNode;
 
   const ScanScreen({super.key, required this.onConnect, required this.onBack});
 
@@ -18,7 +22,8 @@ class ScanScreen extends StatefulWidget {
 }
 
 class _ScanScreenState extends State<ScanScreen> {
-  final List<ScanResult> _meshtasticDevices = [];
+  // Changed from ScanResult to BluetoothDevice to support injecting memory
+  final List<BluetoothDevice> _meshtasticDevices = [];
   final ScrollController _scrollController = ScrollController();
   bool _isScanning = false;
   String _statusMessage = "AWAITING SCAN COMMAND";
@@ -160,20 +165,31 @@ class _ScanScreenState extends State<ScanScreen> {
       _isScanning = true;
       _meshtasticDevices.clear();
       _statusMessage = "SWEEPING FREQUENCIES...";
+
+      // 2. TACTICAL MEMORY INJECTION
+      if (ScanScreen.lastKnownNode != null) {
+        _meshtasticDevices.add(ScanScreen.lastKnownNode!);
+        String name = ScanScreen.lastKnownNode!.platformName;
+        _addScanLogEntry("MEMORY", "Loaded saved node: ${name.isNotEmpty ? name : 'Ghost Node'}");
+      }
     });
 
     // Listen to scan results
     var subscription = FlutterBluePlus.onScanResults.listen((results) {
       for (ScanResult r in results) {
-        // FILTER: Look ONLY for "meshtastic" or "rak"
         String deviceName = r.device.platformName.toLowerCase();
-        if (deviceName.contains("meshtastic") || deviceName.contains("rak")) {
+        // 3. CHECK FOR GHOST PINGS (Blank names saved in advert data)
+        String advName = r.advertisementData.advName.toLowerCase(); 
+        
+        if (deviceName.contains("meshtastic") || deviceName.contains("rak") ||
+            advName.contains("meshtastic") || advName.contains("rak")) {
           // Prevent duplicates
-          if (!_meshtasticDevices.any((d) => d.device.remoteId == r.device.remoteId)) {
+          if (!_meshtasticDevices.any((d) => d.remoteId == r.device.remoteId)) {
             setState(() {
-              _meshtasticDevices.add(r);
+              _meshtasticDevices.add(r.device); // Add just the device
             });
-            _addScanLogEntry("DETECTED", "Found node: ${r.device.platformName}");
+            String displayName = r.device.platformName.isNotEmpty ? r.device.platformName : advName;
+            _addScanLogEntry("DETECTED", "Found node: $displayName");
           }
         }
       }
@@ -199,9 +215,10 @@ class _ScanScreenState extends State<ScanScreen> {
 
   // 3. Connect to the Device
   Future<void> _connectToNode(BluetoothDevice device, int index) async {
-    _addScanLogEntry("CONNECTING", "Initiating handshake with ${device.platformName}...");
+    String dName = device.platformName.isNotEmpty ? device.platformName : "Saved Node";
+    _addScanLogEntry("CONNECTING", "Initiating handshake with $dName...");
     setState(() {
-      _statusMessage = "INITIATING HANDSHAKE WITH ${device.platformName}...";
+      _statusMessage = "INITIATING HANDSHAKE WITH $dName...";
     });
 
     try {
@@ -210,12 +227,15 @@ class _ScanScreenState extends State<ScanScreen> {
         timeout: const Duration(seconds: 15),
       );
       
+      // 4. SAVE TO MEMORY UPON SUCCESS
+      ScanScreen.lastKnownNode = device;
+      
       if (!mounted) return;
       setState(() {
         _statusMessage = "SECURE LINK ESTABLISHED!";
       });
       
-      _addScanLogEntry("SUCCESS", "Secure link established with ${device.platformName}!");
+      _addScanLogEntry("SUCCESS", "Secure link established with $dName!");
       
       // Tell the Storyboard to change the screen to the Dashboard
       Future.delayed(const Duration(milliseconds: 500), () {
@@ -289,6 +309,7 @@ class _ScanScreenState extends State<ScanScreen> {
                 final log = _scanLog[index];
                 bool isError = log['type'] == 'ERROR';
                 bool isSuccess = log['type'] == 'SUCCESS';
+                bool isMemory = log['type'] == 'MEMORY';
 
                 return Align(
                   alignment: Alignment.centerLeft,
@@ -301,14 +322,18 @@ class _ScanScreenState extends State<ScanScreen> {
                           ? Colors.red[900] 
                           : isSuccess
                               ? Colors.green[900]
-                              : AppColors.surface,
+                              : isMemory 
+                                  ? Colors.blue[900] // Added blue color for memory log
+                                  : AppColors.surface,
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: isError
                             ? Colors.red[700]!
                             : isSuccess
                                 ? Colors.green[700]!
-                                : AppColors.border,
+                                : isMemory
+                                    ? Colors.blue[700]!
+                                    : AppColors.border,
                       ),
                     ),
                     child: Column(
@@ -323,7 +348,9 @@ class _ScanScreenState extends State<ScanScreen> {
                                 ? Colors.red[300]
                                 : isSuccess
                                     ? Colors.green[300]
-                                    : AppColors.accent,
+                                    : isMemory 
+                                        ? Colors.blue[300]
+                                        : AppColors.accent,
                             letterSpacing: 1,
                           ),
                         ),
@@ -349,16 +376,16 @@ class _ScanScreenState extends State<ScanScreen> {
           if (_meshtasticDevices.isNotEmpty)
             Container(
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: AppColors.surface,
-                border: const Border(top: BorderSide(color: AppColors.border)),
+                border: Border(top: BorderSide(color: AppColors.border)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     "AVAILABLE NODES (${_meshtasticDevices.length})",
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1,
@@ -367,7 +394,7 @@ class _ScanScreenState extends State<ScanScreen> {
                   ),
                   const SizedBox(height: 12),
                   ...List.generate(_meshtasticDevices.length, (index) {
-                    final device = _meshtasticDevices[index].device;
+                    final device = _meshtasticDevices[index];
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
                       padding: const EdgeInsets.all(12),
@@ -391,7 +418,7 @@ class _ScanScreenState extends State<ScanScreen> {
                                 Text(
                                   device.platformName.isNotEmpty
                                       ? device.platformName
-                                      : "Unknown Node",
+                                      : "Saved Node",
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
