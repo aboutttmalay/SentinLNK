@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -6,8 +9,9 @@ import '../../../core/theme/app_colors.dart';
 
 class ScanScreen extends StatefulWidget {
   final VoidCallback onConnect;
+  final VoidCallback onBack;
 
-  const ScanScreen({super.key, required this.onConnect});
+  const ScanScreen({super.key, required this.onConnect, required this.onBack});
 
   @override
   _ScanScreenState createState() => _ScanScreenState();
@@ -22,6 +26,11 @@ class _ScanScreenState extends State<ScanScreen> {
 
   // 1. Request Permissions
   Future<void> _requestPermissionsAndScan() async {
+    final bool bluetoothReady = await _ensureBluetoothReady();
+    if (!bluetoothReady) {
+      return;
+    }
+
     Map<Permission, PermissionStatus> statuses = await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
@@ -37,6 +46,99 @@ class _ScanScreenState extends State<ScanScreen> {
         _statusMessage = "PERMISSION DENIED. CANNOT SCAN.";
       });
     }
+  }
+
+  Future<bool> _ensureBluetoothReady() async {
+    if (kIsWeb || !Platform.isAndroid) {
+      return true;
+    }
+
+    final bool isSupported = await FlutterBluePlus.isSupported;
+    if (!isSupported) {
+      _addScanLogEntry("ERROR", "BLUETOOTH NOT SUPPORTED ON THIS DEVICE.");
+      setState(() {
+        _statusMessage = "BLUETOOTH NOT SUPPORTED.";
+      });
+      return false;
+    }
+
+    BluetoothAdapterState state = FlutterBluePlus.adapterStateNow;
+    if (state == BluetoothAdapterState.unknown) {
+      state = await FlutterBluePlus.adapterState.first;
+    }
+
+    if (state == BluetoothAdapterState.on) {
+      return true;
+    }
+
+    _addScanLogEntry("ERROR", "BLUETOOTH IS OFF. ENABLE TO SCAN.");
+    setState(() {
+      _statusMessage = "BLUETOOTH IS OFF. ENABLE TO SCAN.";
+    });
+
+    if (!mounted) {
+      return false;
+    }
+
+    final bool? shouldTurnOn = await _showBluetoothOffDialog();
+    if (shouldTurnOn != true) {
+      return false;
+    }
+
+    try {
+      await FlutterBluePlus.turnOn();
+      return true;
+    } catch (e) {
+      _addScanLogEntry("ERROR", "BLUETOOTH ENABLE FAILED.");
+      if (!mounted) {
+        return false;
+      }
+      setState(() {
+        _statusMessage = "BLUETOOTH ENABLE FAILED.";
+      });
+      return false;
+    }
+  }
+
+  Future<bool?> _showBluetoothOffDialog() {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppColors.surface,
+          title: const Text(
+            "BLUETOOTH OFF",
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: const Text(
+            "TURN ON BLUETOOTH TO START SCANNING.",
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text(
+                "CANCEL",
+                style: TextStyle(color: Colors.white70),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange[800],
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text(
+                "TURN ON",
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _addScanLogEntry(String type, String message) {
@@ -147,7 +249,10 @@ class _ScanScreenState extends State<ScanScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.surface,
         elevation: 0,
-        leading: const SizedBox.shrink(),
+        leading: IconButton(
+          icon: const Icon(LucideIcons.chevronLeft, color: Colors.white),
+          onPressed: widget.onBack,
+        ),
         title: const Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,

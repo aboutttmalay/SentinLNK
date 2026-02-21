@@ -28,6 +28,7 @@ class _StoryboardControllerState extends State<StoryboardController> {
 
   // Navigation Actions
   void _startScan() => setState(() => _currentState = AppState.scanning);
+  void _goBackToHome() => setState(() => _currentState = AppState.disconnected);
   void _finishConnection() => setState(() => _currentState = AppState.connected);
   void _openChat() => setState(() => _currentState = AppState.chat);
   void _goBackToDashboard() => setState(() => _currentState = AppState.connected);
@@ -59,7 +60,8 @@ class _StoryboardControllerState extends State<StoryboardController> {
         
       case AppState.scanning:
         return ScanScreen(
-          onConnect: _finishConnection
+          onConnect: _finishConnection,
+          onBack: _goBackToHome,
         );
         
       case AppState.connected:
