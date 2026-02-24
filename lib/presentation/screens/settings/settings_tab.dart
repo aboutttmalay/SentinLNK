@@ -54,6 +54,7 @@ class SettingsTab extends StatelessWidget {
         ),
         const SizedBox(height: 12),
 
+        // 👉 1. LoRa Configuration Button
         GestureDetector(
           onTap: () {
             if (!isConnected) {
@@ -90,13 +91,54 @@ class SettingsTab extends StatelessWidget {
             ),
           ),
         ),
+
+        const SizedBox(height: 12),
+
+        // 👉 2. Security Configuration Button
+        GestureDetector(
+          onTap: () {
+            if (!isConnected) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("🔴 UPLINK REQUIRED: Connect to a node first."), backgroundColor: Colors.orange),
+              );
+              return;
+            }
+            Navigator.push(context, MaterialPageRoute(builder: (context) => const SecurityConfigScreen()));
+          },
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: const Row(
+              children: [
+                Icon(LucideIcons.shieldAlert, color: Colors.orangeAccent, size: 24),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Security", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
+                      Text("Encryption, Bluetooth PIN, Remote Admin", style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                Icon(LucideIcons.chevronRight, color: AppColors.textDim, size: 20),
+              ],
+            ),
+          ),
+        ),
+
       ],
     );
   }
 }
 
 // ==========================================
-// 2. THE LORA CONFIGURATION SCREEN (TWO-WAY SYNC)
+// 2. THE LORA CONFIGURATION SCREEN 
 // ==========================================
 class LoRaConfigScreen extends StatefulWidget {
   const LoRaConfigScreen({super.key});
@@ -106,14 +148,12 @@ class LoRaConfigScreen extends StatefulWidget {
 }
 
 class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
-  // 1. HARDWARE MEMORY
   String _hwRegion = "IN_865";
   bool _hwUsePreset = true;
   String _hwPreset = "LONG_FAST";
   double _hwTxPower = 20.0;
   int _hwHopLimit = 3;
 
-  // 2. ACTIVE UI STATE
   late String _selectedRegion;
   late bool _usePreset;
   late String _selectedPreset;
@@ -121,7 +161,7 @@ class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
   late int _hopLimit;
 
   bool _isTransmitting = false;
-  bool _isSyncing = true; // Shows a loading spinner while we read the WisBlock!
+  bool _isSyncing = true; 
   StreamSubscription<List<int>>? _radioSubscription;
 
   final List<String> _presetOptions = [
@@ -134,12 +174,12 @@ class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
   void initState() {
     super.initState();
     _revertToHardwareSettings();
-    _syncWithHardware(); // 👉 Trigger the Two-Way Sync on load!
+    _syncWithHardware(); 
   }
 
   @override
   void dispose() {
-    _radioSubscription?.cancel(); // Clean up the listener when we close the page
+    _radioSubscription?.cancel(); 
     super.dispose();
   }
 
@@ -153,9 +193,6 @@ class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
     });
   }
 
-  // ==========================================
-  // 📡 TWO-WAY SYNC: READING THE WISBLOCK
-  // ==========================================
   Future<void> _syncWithHardware() async {
     try {
       var devices = FlutterBluePlus.connectedDevices;
@@ -180,28 +217,23 @@ class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
       for (var c in meshService.characteristics) {
         String uuid = c.uuid.toString().toLowerCase();
         if (uuid.contains("f75c76d2")) toRadioChar = c;
-        if (uuid.contains("8ba2bcc2")) fromRadioChar = c; // 👉 The 'Listen' Slot!
+        if (uuid.contains("8ba2bcc2")) fromRadioChar = c; 
       }
 
       if (toRadioChar == null || fromRadioChar == null) {
         throw Exception("Hardware bridge locked.");
       }
 
-      // 1. Subscribe to the 'FromRadio' Slot
       await fromRadioChar.setNotifyValue(true);
       _radioSubscription = fromRadioChar.lastValueStream.listen((value) {
         if (value.isNotEmpty) {
-          print("📥 RECEIVED BYTES FROM RADIO: $value");
           _parseIncomingRadioBytes(value);
         }
       });
 
-      // 2. Ask the radio to send us its config
-      print("📤 SENDING 'WANT CONFIG' REQUEST...");
-      List<int> wantConfigPayload = [0x08, 0x01]; // Standard request byte
+      List<int> wantConfigPayload = [0x08, 0x01]; 
       await toRadioChar.write(wantConfigPayload, withoutResponse: false);
 
-      // Give it 2 seconds to reply, then stop the loading spinner
       await Future.delayed(const Duration(seconds: 2));
       
     } catch (e) {
@@ -211,14 +243,9 @@ class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
     }
   }
 
-  // 👉 The Byte Translator (Parses the incoming Protobuf data)
   void _parseIncomingRadioBytes(List<int> bytes) {
-    // In a full implementation, the protobuf package translates this perfectly.
-    // For now, if the radio replies, we prove the listener works by syncing a visual update.
     if (mounted) {
       setState(() {
-        // Simulating the read: e.g., identifying the TX Power byte and Region byte.
-        // We will fully wire this to the meshtastic_flutter library logic next.
         _isSyncing = false;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -232,9 +259,6 @@ class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
     }
   }
 
-  // ==========================================
-  // 🟢 THE LIVE HARDWARE WRITE PROTOCOL
-  // ==========================================
   Future<void> _applySettingsToRadio() async {
     setState(() => _isTransmitting = true);
 
@@ -258,11 +282,7 @@ class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
         }
       }
 
-      List<int> configPayload = _buildLoRaProtobufBytes(
-        region: _selectedRegion, preset: _selectedPreset, 
-        txPower: _txPower.toInt(), hops: _hopLimit,
-      );
-
+      List<int> configPayload = [0x08, 0x04, 0x12, 0x02, 0x08, _txPower.toInt()]; 
       await toRadioChar!.write(configPayload, withoutResponse: false);
 
       _hwRegion = _selectedRegion;
@@ -288,13 +308,6 @@ class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
     }
   }
 
-  List<int> _buildLoRaProtobufBytes({required String region, required String preset, required int txPower, required int hops}) {
-    return [0x08, 0x04, 0x12, 0x02, 0x08, txPower]; 
-  }
-
-  // ==========================================
-  // UI BUILDERS
-  // ==========================================
   Widget _buildDropdown(String label, String value, List<String> items, Function(String?) onChanged, {bool enabled = true}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -442,6 +455,195 @@ class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
                 ),
               ),
             ],
+          )
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 3. THE NEW SECURITY CONFIGURATION SCREEN
+// ==========================================
+class SecurityConfigScreen extends StatefulWidget {
+  const SecurityConfigScreen({super.key});
+
+  @override
+  State<SecurityConfigScreen> createState() => _SecurityConfigScreenState();
+}
+
+class _SecurityConfigScreenState extends State<SecurityConfigScreen> {
+  // Temporary State Values (Simulated read from radio)
+  String _btPairingMode = "Secure PIN";
+  bool _allowRemoteAdmin = false;
+
+  void _showWarningDialog(String title, String desc, VoidCallback onConfirm) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Text(title, style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+        content: Text(desc, style: const TextStyle(color: Colors.white70)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: AppColors.textDim))),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              onConfirm();
+            },
+            child: const Text("PROCEED", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: AppBar(
+        backgroundColor: AppColors.surface,
+        elevation: 0,
+        leading: IconButton(icon: const Icon(LucideIcons.chevronLeft, color: Colors.white), onPressed: () => Navigator.pop(context)),
+        title: const Text("Security & Encryption", style: TextStyle(color: Colors.white, fontSize: 16, letterSpacing: 1)),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          
+          // --- BLUETOOTH SECURITY ---
+          const Text("BLUETOOTH ACCESS", style: TextStyle(color: AppColors.textDim, fontSize: 12, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: BoxDecoration(
+              color: AppColors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.border),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _btPairingMode, isExpanded: true, dropdownColor: AppColors.surface,
+                icon: const Icon(LucideIcons.chevronDown, color: AppColors.textDim),
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                items: ["Secure PIN", "Fixed PIN", "No PIN (Insecure)"].map((String item) { 
+                  return DropdownMenuItem<String>(value: item, child: Text(item)); 
+                }).toList(),
+                onChanged: (val) => setState(() => _btPairingMode = val!),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text("Prevents unauthorized phones from linking to your physical node.", style: TextStyle(color: Colors.white38, fontSize: 11)),
+          
+          const SizedBox(height: 32),
+
+          // --- NETWORK ENCRYPTION ---
+          const Text("MESH ENCRYPTION (AES-256)", style: TextStyle(color: AppColors.textDim, fontSize: 12, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              children: [
+                const Row(
+                  children: [
+                    Icon(LucideIcons.key, color: AppColors.primary, size: 20),
+                    SizedBox(width: 12),
+                    Expanded(child: Text("Primary Channel Key", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold))),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(6)),
+                  // 👉 THE OVERFLOW FIX: Wrapped the string of dots in Expanded so it shrinks properly!
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          "••••••••••••••••••••••••", 
+                          style: TextStyle(color: AppColors.textDim, letterSpacing: 2),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Icon(LucideIcons.eye, color: AppColors.textDim, size: 16),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      _showWarningDialog("Regenerate Key?", "This will break communication with your current mesh. Other nodes will need to scan your new QR code to reconnect.", () {});
+                    },
+                    icon: const Icon(LucideIcons.refreshCw, color: Colors.orangeAccent, size: 16),
+                    label: const Text("REGENERATE KEY", style: TextStyle(color: Colors.orangeAccent)),
+                    style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.orangeAccent)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // --- REMOTE ADMIN ---
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.border)),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Remote Administration", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
+                      Text("Allow changing settings over the radio mesh via admin channel.", style: TextStyle(color: AppColors.textDim, fontSize: 11)),
+                    ],
+                  ),
+                ),
+                Switch(value: _allowRemoteAdmin, activeThumbColor: AppColors.primary, inactiveTrackColor: AppColors.bg, onChanged: (val) => setState(() => _allowRemoteAdmin = val)),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 48),
+
+          // --- DANGER ZONE ---
+          const Text("DANGER ZONE", style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+            ),
+            child: Column(
+              children: [
+                const Text("Wiping the node will erase all network databases, reset encryption keys, and reboot the hardware. This action is irreversible.", 
+                  style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.4)),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 45,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      _showWarningDialog("FACTORY RESET", "Are you absolutely sure? This will wipe the hardware completely.", () {});
+                    },
+                    icon: const Icon(LucideIcons.skull, color: Colors.white, size: 18),
+                    label: const Text("FACTORY RESET NODE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                  ),
+                )
+              ],
+            ),
           )
         ],
       ),

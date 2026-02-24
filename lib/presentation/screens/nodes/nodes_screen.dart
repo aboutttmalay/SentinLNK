@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../../../data/models/node_database.dart';
-import 'node_details_screen.dart';
 import '../../../core/services/hardware_bridge.dart';
-import '../../../core/theme/app_colors.dart'; // 👉 Uses your app's actual theme!
+import '../../../core/theme/app_colors.dart'; 
+import 'node_details_screen.dart';
 
 class NodesScreen extends StatefulWidget {
   const NodesScreen({super.key});
@@ -17,7 +17,17 @@ class _NodesScreenState extends State<NodesScreen> {
   @override
   void initState() {
     super.initState();
+    print("📌 NodesScreen initState");
     HardwareBridge.instance.connectAndSync();
+  }
+
+  // 👉 DYNAMIC SIGNAL QUALITY LOGIC
+  String _getSignalQualityText(int? rssi) {
+    if (rssi == null || rssi == -100) return "Waiting...";
+    if (rssi >= -70) return "Excellent";
+    if (rssi >= -90) return "Good";
+    if (rssi >= -105) return "Fair";
+    return "Weak";
   }
 
   @override
@@ -27,62 +37,40 @@ class _NodesScreenState extends State<NodesScreen> {
       builder: (context, nodesMap, child) {
         final nodes = nodesMap.values.toList();
 
-        // Sort: Local node at the top, then alphabetically
+        // 👉 SORTS LOCAL NODE (YELLOW) TO THE VERY TOP!
         nodes.sort((a, b) {
           if (a.isLocal && !b.isLocal) return -1;
           if (!a.isLocal && b.isLocal) return 1;
           return a.longName.compareTo(b.longName);
         });
 
-        // We use a Container instead of a Scaffold so it seamlessly blends into your HomeScreen
         return Container(
           color: AppColors.bg,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              
-              // ==========================================
-              // CUSTOM TACTICAL HEADER (Matches Chat Screen)
-              // ==========================================
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          "TACTICAL NODES",
-                          style: TextStyle(
-                            fontSize: 20, 
-                            fontWeight: FontWeight.bold, 
-                            color: Colors.white,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          "${nodes.length} ACTIVE SIGNALS",
-                          style: const TextStyle(
-                            fontSize: 10, 
-                            color: AppColors.primary, 
-                            letterSpacing: 1.5
-                          ),
-                        ),
-                      ],
+                    const Text(
+                      "NODES",
+                      style: TextStyle(
+                        fontSize: 22, 
+                        fontWeight: FontWeight.bold, 
+                        color: Colors.white, 
+                        letterSpacing: 1.2
+                      ),
                     ),
-                    IconButton(
-                      icon: const Icon(LucideIcons.listFilter, color: Colors.white),
-                      onPressed: () {},
-                    )
+                    Text(
+                      "(${nodes.length} online / ${nodes.length} total)",
+                      style: const TextStyle(fontSize: 12, color: AppColors.textDim),
+                    ),
                   ],
                 ),
               ),
 
-              // ==========================================
-              // SEARCH BAR
-              // ==========================================
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                 child: TextField(
@@ -110,9 +98,6 @@ class _NodesScreenState extends State<NodesScreen> {
                 ),
               ),
 
-              // ==========================================
-              // NODE LIST
-              // ==========================================
               Expanded(
                 child: nodes.isEmpty
                     ? const Center(
@@ -121,8 +106,7 @@ class _NodesScreenState extends State<NodesScreen> {
                           children: [
                             CircularProgressIndicator(color: AppColors.primary),
                             SizedBox(height: 16),
-                            Text("📡 Syncing topology...",
-                                 style: TextStyle(color: AppColors.textDim)),
+                            Text("📡 Syncing topology...", style: TextStyle(color: AppColors.textDim)),
                           ],
                         ),
                       )
@@ -136,7 +120,7 @@ class _NodesScreenState extends State<NodesScreen> {
                           padding: const EdgeInsets.all(16),
                           itemCount: nodes.length,
                           itemBuilder: (context, index) {
-                            return _buildNodeCard(nodes[index]);
+                            return _buildNodeCard(nodes[index], context);
                           },
                         ),
                       ),
@@ -148,25 +132,15 @@ class _NodesScreenState extends State<NodesScreen> {
     );
   }
 
-  // ==========================================
-  // NODE CARD UI (Styled like your original app)
-  // ==========================================
-  Widget _buildNodeCard(TacticalNode node) {
+  Widget _buildNodeCard(TacticalNode node, BuildContext context) {
     final bool isLocal = node.isLocal;
-    
-    // Assign colors based on your app's theme
     final Color badgeColor = isLocal ? Colors.orangeAccent : AppColors.primary;
     final Color textColor = Colors.white;
     final Color dimTextColor = AppColors.textDim;
 
     return GestureDetector(
       onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => NodeDetailsScreen(node: node),
-          ),
-        );
+        Navigator.push(context, MaterialPageRoute(builder: (context) => NodeDetailsScreen(node: node)));
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
@@ -174,29 +148,18 @@ class _NodesScreenState extends State<NodesScreen> {
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            // Highlight the local node with an orange border
-            color: isLocal ? Colors.orangeAccent.withValues(alpha: 0.3) : AppColors.border,
-          ),
+          border: Border.all(color: isLocal ? Colors.orangeAccent.withValues(alpha: 0.3) : AppColors.border),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            
-            // --- 1. HEADER ROW ---
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: badgeColor.withValues(alpha: 0.2), 
-                    borderRadius: BorderRadius.circular(6)
-                  ),
-                  child: Text(
-                    node.shortName,
-                    style: TextStyle(color: badgeColor, fontWeight: FontWeight.bold, fontSize: 14),
-                  ),
+                  decoration: BoxDecoration(color: badgeColor.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(6)),
+                  child: Text(node.shortName, style: TextStyle(color: badgeColor, fontWeight: FontWeight.bold, fontSize: 14)),
                 ),
                 const SizedBox(width: 12),
                 Icon(LucideIcons.lock, color: badgeColor, size: 16),
@@ -205,33 +168,23 @@ class _NodesScreenState extends State<NodesScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        node.longName,
-                        style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w600),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      Text(node.longName, style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
                       const SizedBox(height: 2),
                       Row(
                         children: [
                           Icon(LucideIcons.radioReceiver, color: dimTextColor, size: 12),
                           const SizedBox(width: 4),
-                          Text(
-                            node.lastHeardText,
-                            style: TextStyle(color: dimTextColor, fontSize: 12),
-                          ),
+                          Text(node.lastHeardText, style: TextStyle(color: dimTextColor, fontSize: 12)),
                         ],
                       ),
                     ],
                   ),
                 ),
-                if (isLocal)
-                  Icon(LucideIcons.cloud, color: badgeColor, size: 20),
+                if (isLocal) Icon(LucideIcons.cloud, color: badgeColor, size: 20),
               ],
             ),
             const SizedBox(height: 16),
 
-            // --- 2. TELEMETRY ROW ---
             if (isLocal)
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -240,8 +193,13 @@ class _NodesScreenState extends State<NodesScreen> {
                     children: [
                       Icon(LucideIcons.zap, color: dimTextColor, size: 16),
                       const SizedBox(width: 6),
-                      Text("PWR ${node.voltage.toStringAsFixed(2)}V", style: TextStyle(color: dimTextColor, fontSize: 13, fontWeight: FontWeight.w500)),
-                      const SizedBox(width: 16),
+                      // 👉 FIX: Wrapped in Expanded to prevent overflow
+                      Expanded(
+                        child: Text("PWR ${node.voltage.toStringAsFixed(2)}V", 
+                          style: TextStyle(color: dimTextColor, fontSize: 13, fontWeight: FontWeight.w500),
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       Icon(LucideIcons.barChart2, color: dimTextColor, size: 16),
                       const SizedBox(width: 6),
                       Text("ChUtil 0.0%", style: TextStyle(color: dimTextColor, fontSize: 13)),
@@ -263,11 +221,19 @@ class _NodesScreenState extends State<NodesScreen> {
                   const SizedBox(height: 6),
                   Row(
                     children: [
-                      Text("SNR ${node.snr}dB  RSSI ${node.rssi ?? '--'}dBm", style: TextStyle(color: badgeColor, fontSize: 13)),
-                      const SizedBox(width: 12),
+                      // 👉 FIX: Wrapped the SNR/RSSI text in an Expanded widget and formatted the decimal!
+                      Expanded(
+                        child: Text(
+                          "SNR ${node.snr.toStringAsFixed(1)}dB  RSSI ${node.rssi ?? '--'}dBm", 
+                          style: TextStyle(color: badgeColor, fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
                       Icon(LucideIcons.signal, color: badgeColor, size: 14),
                       const SizedBox(width: 4),
-                      Text("Good", style: TextStyle(color: badgeColor, fontSize: 13, fontWeight: FontWeight.w500)),
+                      Text(_getSignalQualityText(node.rssi), style: TextStyle(color: badgeColor, fontSize: 13, fontWeight: FontWeight.w500)),
                     ],
                   ),
                 ],
@@ -275,7 +241,6 @@ class _NodesScreenState extends State<NodesScreen> {
             
             const SizedBox(height: 16),
 
-            // --- 3. BOTTOM HARDWARE ROW ---
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -290,7 +255,7 @@ class _NodesScreenState extends State<NodesScreen> {
     );
   }
 
-  // Safe builder to prevent text overflow layout crashes
+  // Safe wrapper for bottom row icons
   Widget _buildBottomIconText(IconData icon, String text, Color color) {
     return Expanded(
       child: Row(
@@ -299,12 +264,7 @@ class _NodesScreenState extends State<NodesScreen> {
           Icon(icon, color: color, size: 14),
           const SizedBox(width: 4),
           Flexible(
-            child: Text(
-              text, 
-              style: TextStyle(color: color, fontSize: 12),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
+            child: Text(text, style: TextStyle(color: color, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
           ),
         ],
       ),

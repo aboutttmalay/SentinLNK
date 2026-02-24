@@ -14,7 +14,7 @@ class TacticalNode {
   final double voltage;
   final double snr;
   final int? rssi;   
-  final int lastHeardUnix; // Store raw integer for better sorting
+  final int lastHeardUnix; 
   final String lastHeardText;
   final bool isLocal;
 
@@ -33,7 +33,6 @@ class TacticalNode {
     required this.isLocal,
   });
 
-  // THE SECRET: The official app merges partial packets!
   TacticalNode copyWith({
     String? shortName, String? longName, String? hardware, String? role,
     double? batteryLevel, double? voltage, double? snr, int? rssi,
@@ -64,39 +63,27 @@ class NodeDatabase {
   NodeDatabase._init();
 
   final ValueNotifier<Map<String, TacticalNode>> radarMap = ValueNotifier({});
-  String localNodeHexId = ""; // We will store MyNodeInfo here
-
-  // ==========================================
-  // 👉 NEW: Global trigger for background text messages
-  // ==========================================
+  String localNodeHexId = ""; 
   final ValueNotifier<String?> latestIncomingMessage = ValueNotifier(null);
 
   void notifyNewMessage(String text) {
-    print("📨 BACKGROUND NOTIFIER: Triggering UI for new message: $text");
     latestIncomingMessage.value = text;
   }
 
-  // 1️⃣ OFFICIAL STEP 1: Catch Local Node ID
   void setLocalHardwareId(String hexId) {
     localNodeHexId = hexId;
-    print("📍 SET LOCAL NODE: $localNodeHexId");
   }
 
-  // 2️⃣ OFFICIAL STEP 2: Smart Merge NodeInfo
   void processDirectNodeInfo(NodeInfo info) {
     final current = Map<String, TacticalNode>.from(radarMap.value);
-    
     String hexId = "!${info.num.toRadixString(16).toLowerCase()}";
     
-    // Create a blank slate if we've never seen this node
     TacticalNode node = current[hexId] ?? TacticalNode(
       shortName: hexId.length > 4 ? hexId.substring(hexId.length - 4) : hexId,
-      longName: "Unknown Node",
-      hexId: hexId, hardware: "UNKNOWN", role: "CLIENT",
+      longName: "Unknown Node", hexId: hexId, hardware: "UNKNOWN", role: "CLIENT",
       batteryLevel: 0.0, voltage: 0.0, snr: 0.0, lastHeardUnix: 0, lastHeardText: "Never", isLocal: false,
     );
 
-    // Smart Merge User Data
     if (info.hasUser()) {
       node = node.copyWith(
         shortName: info.user.shortName.isNotEmpty ? info.user.shortName : node.shortName,
@@ -105,16 +92,10 @@ class NodeDatabase {
         role: info.user.role.toString().replaceAll("ROLE_", "").replaceAll("UNSET", "CLIENT"),
       );
     }
-
-    // Smart Merge Telemetry
     if (info.hasDeviceMetrics()) {
-      node = node.copyWith(
-        batteryLevel: info.deviceMetrics.batteryLevel.toDouble(),
-        voltage: info.deviceMetrics.voltage.toDouble(),
-      );
+      node = node.copyWith(batteryLevel: info.deviceMetrics.batteryLevel.toDouble(), voltage: info.deviceMetrics.voltage.toDouble());
     }
     
-    // Smart Merge Signal & Timing
     node = node.copyWith(
       snr: info.hasSnr() ? info.snr.toDouble() : node.snr,
       lastHeardUnix: info.lastHeard > 0 ? info.lastHeard : node.lastHeardUnix,
@@ -123,33 +104,33 @@ class NodeDatabase {
     );
 
     current[hexId] = node;
-    // 🚀 Trigger UI Build on the main thread
-    Future.microtask(() {
-      radarMap.value = current;
-    });
-    print("📦 NodeDatabase: added/updated node $hexId. Total nodes now: ${current.length}");
+    Future.microtask(() { radarMap.value = current; });
   }
 
-  // 👉 NEW: Process Live Battery & Health Data!
-  void processTelemetry(String hexId, double battery, double voltage, double snr, int rssi) {
+  // 👉 NEW: Instantly update LIVE Signal Metrics from ANY packet!
+  void updateSignalMetrics(String hexId, double snr, int rssi) {
     final current = Map<String, TacticalNode>.from(radarMap.value);
     
-    // Only update if we already know who this node is
     if (current.containsKey(hexId)) {
       current[hexId] = current[hexId]!.copyWith(
-        batteryLevel: battery,
-        voltage: voltage,
         snr: snr,
         rssi: rssi,
         lastHeardUnix: DateTime.now().millisecondsSinceEpoch ~/ 1000,
         lastHeardText: "Just now",
       );
-      // 🚀 Trigger UI Build on the main thread
-      Future.microtask(() {
-        print("⚡ MICROTASK: about to set radarMap.value with ${current.length} nodes");
-        radarMap.value = current;
-      });
-      print("📦 NodeDatabase: telemetry update for $hexId. Total nodes now: ${current.length}");
+      Future.microtask(() { radarMap.value = current; });
+    }
+  }
+
+  void processTelemetry(String hexId, double battery, double voltage, double snr, int rssi) {
+    final current = Map<String, TacticalNode>.from(radarMap.value);
+    if (current.containsKey(hexId)) {
+      current[hexId] = current[hexId]!.copyWith(
+        batteryLevel: battery, voltage: voltage, snr: snr, rssi: rssi,
+        lastHeardUnix: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        lastHeardText: "Just now",
+      );
+      Future.microtask(() { radarMap.value = current; });
     }
   }
 

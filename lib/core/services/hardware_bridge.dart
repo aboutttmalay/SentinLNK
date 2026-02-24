@@ -20,9 +20,6 @@ class HardwareBridge {
 
   bool get isConnected => _isHardwareConnected;
 
-  // ==========================================
-  // 🚀 GLOBAL START 
-  // ==========================================
   Future<void> connectAndSync() async {
     if (_isSyncing || _isHardwareConnected) return; 
     _isSyncing = true;
@@ -58,15 +55,10 @@ class HardwareBridge {
     }
   }
 
-  // ==========================================
-  // 📥 THE BACKGROUND LISTENER
-  // ==========================================
   Future<void> _startRadioListener(BluetoothCharacteristic fromRadio, BluetoothCharacteristic fromNum) async {
-    print("🎧 [GLOBAL BRIDGE] SUBSCRIBING TO BELL...");
     await fromNum.setNotifyValue(true);
 
     _radioListener = fromNum.onValueReceived.listen((_) {
-        print("🔔 BELL RANG AFTER SYNC");
       _drainMailbox(fromRadio); 
     });
 
@@ -75,8 +67,6 @@ class HardwareBridge {
 
     await Future.delayed(const Duration(milliseconds: 500));
     int randomConfigId = Random().nextInt(999999) + 1;
-    print("📥 [GLOBAL BRIDGE] REQUESTING NODE DB SYNC (ID: $randomConfigId)...");
-    
     final req = ToRadio()..wantConfigId = randomConfigId; 
     await _toRadioChar!.write(req.writeToBuffer(), withoutResponse: false);
 
@@ -84,96 +74,83 @@ class HardwareBridge {
     _drainMailbox(fromRadio); 
   }
 
-  // ==========================================
-  // 📨 HELPER: SAFE MAILBOX DRAINER
-  // ==========================================
   Future<void> _drainMailbox(BluetoothCharacteristic fromRadio) async {
-  if (_isReading) return;
-  _isReading = true;
+    if (_isReading) return;
+    _isReading = true;
 
-  try {
-    // Keep reading until we get 3 consecutive empty reads
-    int emptyCount = 0;
-    while (emptyCount < 3) {
-      List<int> bytes = await fromRadio.read();
-      if (bytes.isEmpty) {
-        emptyCount++;
-        await Future.delayed(const Duration(milliseconds: 50));
-      } else {
-        emptyCount = 0;
-        print("📡 RAW BYTES CAUGHT: ${bytes.length} bytes");
-        _processDecodedPacket(bytes);
+    try {
+      int emptyCount = 0;
+      while (emptyCount < 2) {
+        List<int> bytes = await fromRadio.read();
+        
+        if (bytes.isEmpty) {
+          emptyCount++;
+        } else {
+          emptyCount = 0; 
+          _processDecodedPacket(bytes); 
+        }
+        await Future.delayed(const Duration(milliseconds: 100)); 
       }
+    } catch (e) {
+    } finally {
+      _isReading = false; 
     }
-  } catch (e) {
-    print("🔴 MAILBOX DRAIN ERROR: $e");
-  } finally {
-    _isReading = false;
   }
-}
-  // ==========================================
-  // 📨 HELPER: OFFICIAL PROTOBUF STATE MACHINE
-  // ==========================================
+
   void _processDecodedPacket(List<int> bytes) {
     try {
       final fromRadio = FromRadio.fromBuffer(bytes);
 
       if (fromRadio.hasMyInfo()) {
          String myHex = "!${fromRadio.myInfo.myNodeNum.toRadixString(16).toLowerCase()}";
-         print("📍 SET LOCAL NODE: $myHex");
          NodeDatabase.instance.setLocalHardwareId(myHex);
          return; 
       }
-
       if (fromRadio.hasNodeInfo()) {
-         print("📥 DOWNLOADED NODE: ${fromRadio.nodeInfo.user.longName}");
          NodeDatabase.instance.processDirectNodeInfo(fromRadio.nodeInfo);
          return; 
       }
+      if (fromRadio.hasConfigCompleteId()) { return; }
 
-      if (fromRadio.hasConfigCompleteId()) {
-         print("✅ RADIO SYNC 100% COMPLETE!");
-         return;
-      }
-
-      if (fromRadio.hasPacket() && fromRadio.packet.hasDecoded()) {
-        final data = fromRadio.packet.decoded;
-        final senderId = "!${fromRadio.packet.from.toRadixString(16).toLowerCase()}"; 
+      // 👉 EXTRACT LIVE SIGNAL DATA FROM EVERY PACKET
+      if (fromRadio.hasPacket()) {
+        final packet = fromRadio.packet;
+        final senderId = "!${packet.from.toRadixString(16).toLowerCase()}"; 
         
-        if (data.portnum == PortNum.TEXT_MESSAGE_APP) {
-           String messageText = utf8.decode(data.payload);
-           NodeDatabase.instance.notifyNewMessage(messageText); 
-        } 
-        else if (data.portnum == PortNum.NODEINFO_APP) {
-           final user = User.fromBuffer(data.payload);
-           final tempInfo = NodeInfo()..num = fromRadio.packet.from..user = user;
-           NodeDatabase.instance.processDirectNodeInfo(tempInfo);
+        if (packet.hasRxRssi() || packet.hasRxSnr()) {
+           double rxSnr = packet.hasRxSnr() ? packet.rxSnr.toDouble() : 0.0;
+           int rxRssi = packet.hasRxRssi() ? packet.rxRssi : -100;
+           NodeDatabase.instance.updateSignalMetrics(senderId, rxSnr, rxRssi);
         }
-        else if (data.portnum == PortNum.TELEMETRY_APP) {
-           final telemetry = Telemetry.fromBuffer(data.payload);
-           if (telemetry.hasDeviceMetrics()) {
-              print("🔋 HEALTH UPDATE: $senderId (${telemetry.deviceMetrics.batteryLevel}%)");
-              double rxSnr = fromRadio.packet.hasRxSnr() ? fromRadio.packet.rxSnr.toDouble() : 0.0;
-              int rxRssi = fromRadio.packet.hasRxRssi() ? fromRadio.packet.rxRssi : -100;
-              
-              NodeDatabase.instance.processTelemetry(
-                senderId,
-                telemetry.deviceMetrics.batteryLevel.toDouble(),
-                telemetry.deviceMetrics.voltage.toDouble(),
-                rxSnr,
-                rxRssi
-              );
-           }
+
+        if (packet.hasDecoded()) {
+          final data = packet.decoded;
+          
+          if (data.portnum == PortNum.TEXT_MESSAGE_APP) {
+             String messageText = utf8.decode(data.payload);
+             NodeDatabase.instance.notifyNewMessage(messageText); 
+          } 
+          else if (data.portnum == PortNum.NODEINFO_APP) {
+             final user = User.fromBuffer(data.payload);
+             final tempInfo = NodeInfo()..num = packet.from..user = user;
+             NodeDatabase.instance.processDirectNodeInfo(tempInfo);
+          }
+          else if (data.portnum == PortNum.TELEMETRY_APP) {
+             final telemetry = Telemetry.fromBuffer(data.payload);
+             if (telemetry.hasDeviceMetrics()) {
+                double rxSnr = packet.hasRxSnr() ? packet.rxSnr.toDouble() : 0.0;
+                int rxRssi = packet.hasRxRssi() ? packet.rxRssi : -100;
+                NodeDatabase.instance.processTelemetry(
+                  senderId, telemetry.deviceMetrics.batteryLevel.toDouble(),
+                  telemetry.deviceMetrics.voltage.toDouble(), rxSnr, rxRssi
+                );
+             }
+          }
         }
       }
-    } catch (e) {
-      print("🔴 PACKET DECODE ERROR: $e");
-    }
+    } catch (e) {}
   }
 
-  // ==========================================
-  // 📤 GLOBAL TRANSMITTER
-  // ==========================================
   Future<void> sendTacticalMessage(String text) async {
     if (_toRadioChar == null) return;
     try {

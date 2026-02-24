@@ -2,12 +2,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+
 import '../../../core/theme/app_colors.dart';
 import '../../widgets/pulse_animation.dart';
 import '../scanning/scan_screen.dart';
 import 'widgets/chat_tile.dart';
 import '../settings/settings_tab.dart';
-import '../nodes/nodes_screen.dart'; // 👉 NEW: Imported our real Nodes Screen!
+import '../nodes/nodes_screen.dart';
+import '../../../core/storage/storage_service.dart'; // 👉 NEW: Imported Storage Service
 
 class HomeScreen extends StatefulWidget {
   final bool isConnected;
@@ -26,7 +28,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // To track which tab is selected (0 = Messages, 1 = Nodes, 2 = Settings)
   int _currentTabIndex = 0;
 
   // ==========================================
@@ -179,12 +180,21 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // ==========================================
+  // 👉 UPDATED: WIPES DATABASE ON "FORGET DEVICE"
+  // ==========================================
   void _handleForgetDevice() {
     Navigator.pop(context); 
     _showConfirmDialog(
       title: "Forget Device?",
-      message: "This will permanently sever the link and wipe security keys. This cannot be undone.",
+      message: "This will permanently sever the link, wipe security keys, and DELETE ALL CHAT HISTORY. This cannot be undone.",
       onConfirm: () async {
+        
+        // 1. Clear Local Database
+        await StorageService.clearLogs();
+        print("🗑️ TACTICAL LOGS WIPED.");
+
+        // 2. Disconnect Hardware
         var devices = FlutterBluePlus.connectedDevices;
         if (devices.isNotEmpty) {
           BluetoothDevice device = devices.first;
@@ -199,9 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }
         
-        // Wipes the tactical memory
         ScanScreen.lastKnownNode = null; 
-
         if (widget.onDisconnect != null) widget.onDisconnect!();
       },
     );
@@ -260,9 +268,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ==========================================
-  // CUSTOM TACTICAL FOOTER (UPDATED)
-  // ==========================================
   Widget _buildFooterTab(IconData icon, String label, int index) {
     bool isSelected = _currentTabIndex == index;
     return GestureDetector(
@@ -272,8 +277,8 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       },
       child: Container(
-        color: Colors.transparent, // Increases tap target area safely
-        width: 70, // Gives each icon an equal, invisible bounding box
+        color: Colors.transparent, 
+        width: 70, 
         child: Column(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
@@ -292,7 +297,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: isSelected ? AppColors.primary : AppColors.textDim,
                 letterSpacing: 0.5,
               ),
-              maxLines: 1, // Prevents text from breaking layout
+              maxLines: 1, 
               overflow: TextOverflow.ellipsis,
             ),
           ],
@@ -306,7 +311,7 @@ class _HomeScreenState extends State<HomeScreen> {
       onTap: widget.isConnected ? _showHardwareMenu : widget.onAction,
       child: Container(
         color: Colors.transparent,
-        width: 70, // Match the width of the other tabs for perfect balance
+        width: 70, 
         child: Column(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
@@ -349,40 +354,54 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
-      
-      // Main Content Area
       body: SafeArea(
         child: Column(
           children: [
             Expanded(
               child: _currentTabIndex == 0 
-                ? ListView(
-                    padding: const EdgeInsets.all(16),
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      ChatTile(
-                        name: "Alpha Squad",
-                        message: widget.isConnected ? "Sector 4 clear. Requesting extraction." : "Connection required...",
-                        time: "09:41", isUnread: true, isConnected: widget.isConnected, onTap: widget.isConnected ? widget.onAction : () {},
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        child: Text(
+                          "MESSAGES",
+                          style: TextStyle(
+                            fontSize: 22, 
+                            fontWeight: FontWeight.bold, 
+                            color: Colors.white, 
+                            letterSpacing: 1.2
+                          ),
+                        ),
                       ),
-                      ChatTile(
-                        name: "Command HQ",
-                        message: widget.isConnected ? "Update SITREP immediately." : "Connection required...",
-                        time: "09:30", isUnread: false, isConnected: widget.isConnected, onTap: () {},
+                      // Chat List
+                      Expanded(
+                        child: ListView(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          children: [
+                            ChatTile(
+                              name: "Alpha Squad",
+                              message: widget.isConnected ? "Sector 4 clear. Requesting extraction." : "Connection required...",
+                              time: "09:41", isUnread: true, isConnected: widget.isConnected, onTap: widget.isConnected ? widget.onAction : () {},
+                            ),
+                            ChatTile(
+                              name: "Command HQ",
+                              message: widget.isConnected ? "Update SITREP immediately." : "Connection required...",
+                              time: "09:30", isUnread: false, isConnected: widget.isConnected, onTap: () {},
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   )
                 : _currentTabIndex == 1
-                    ? const NodesScreen() // 👉 THE FIX: IT NOW LOADS THE ACTUAL NODES SCREEN!
+                    ? const NodesScreen() 
                     : SettingsTab(isConnected: widget.isConnected), 
             ),
           ],
         ),
       ),
-
       
-      // ==========================================
-      // THE NEW EQUALLY SPACED TACTICAL FOOTER
-      // ==========================================
       bottomNavigationBar: Container(
         height: 75,
         decoration: const BoxDecoration(
@@ -394,16 +413,9 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly, 
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Option 1: Messages
             _buildFooterTab(LucideIcons.messageSquare, "Messages", 0),
-            
-            // Option 2: Nodes
             _buildFooterTab(LucideIcons.network, "NODES", 1),
-            
-            // Option 3: Settings
             _buildFooterTab(LucideIcons.settings, "Settings", 2),
-
-            // Option 4: The Hardware Options Menu 
             _buildBlinkingHardwareLogo(),
           ],
         ),
