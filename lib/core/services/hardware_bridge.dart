@@ -202,16 +202,21 @@ class HardwareBridge {
     if (_toRadioChar == null) return;
     try {
       print("📤 SENDING MESSAGE: $text");
-      final data = Data()..portnum = PortNum.TEXT_MESSAGE_APP..payload = utf8.encode(text);
+      
+      final data = Data()
+        ..portnum = PortNum.TEXT_MESSAGE_APP
+        ..payload = utf8.encode(text);
       
       final packet = MeshPacket()
-        ..id = Random().nextInt(0xFFFFFFFF) // 👉 CRITICAL FIX: Hardware requires a unique packet ID
+        // 👉 FIX 1: Let the radio assign the packet ID automatically
         ..decoded = data
-        ..to = 0xFFFFFFFF
-        ..wantAck = true;
+        ..to = 0xFFFFFFFF // Broadcast to entire encrypted squad
+        ..wantAck = false // 👉 FIX 2: Firmware will DROP broadcasts if wantAck is true!
+        ..channel = 0;    // 👉 FIX 3: Explicitly define the primary channel
         
       final toRadio = ToRadio()..packet = packet;
       await _toRadioChar!.write(toRadio.writeToBuffer(), withoutResponse: false);
+      print("🟢 MESSAGE INJECTED TO HARDWARE TX BUFFER.");
     } catch (e) {
       print("🔴 ERROR SENDING MESSAGE: $e");
     }

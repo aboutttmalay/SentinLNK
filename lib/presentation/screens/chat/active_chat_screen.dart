@@ -10,8 +10,13 @@ import '../../../core/services/hardware_bridge.dart'; // 👉 NEW: Global Engine
 
 class ActiveChatScreen extends StatefulWidget {
   final VoidCallback onBack;
+  final String chatName;
 
-  const ActiveChatScreen({super.key, required this.onBack});
+  const ActiveChatScreen({
+    super.key,
+    required this.onBack,
+    this.chatName = "ALPHA SQUAD",
+  });
 
   @override
   _ActiveChatScreenState createState() => _ActiveChatScreenState();
@@ -121,9 +126,9 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "ALPHA SQUAD",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white, letterSpacing: 1),
+            Text(
+              widget.chatName,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white, letterSpacing: 1),
             ),
             Text(
               // Ask the Global Engine if we are online!

@@ -13,6 +13,7 @@ import '../nodes/nodes_screen.dart';
 import '../../../core/storage/storage_service.dart'; 
 import '../../../core/services/hardware_bridge.dart'; 
 import '../../../data/models/node_database.dart';
+import '../chat/active_chat_screen.dart'; // 👉 Added right here!
 
 class HomeScreen extends StatefulWidget {
   final bool isConnected;
@@ -320,7 +321,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       
-                      // 👉 ISOLATED LISTENER: Only the list rebuilds when the squad changes!
                       // 👉 ISOLATED LISTENER: Renders Global Mesh, and adds Squad Mesh below it!
                       Expanded(
                         child: ValueListenableBuilder<String>(
@@ -339,20 +339,43 @@ class _HomeScreenState extends State<HomeScreen> {
                                 time: "Active", 
                                 isUnread: squadName == "Global Mesh", 
                                 isConnected: widget.isConnected, 
-                                onTap: widget.isConnected ? widget.onAction : () {},
+                                onTap: widget.isConnected ? () {
+                                  // 👉 FIX: Route directly to Global Mesh!
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => ActiveChatScreen(
+                                        chatName: "Global Mesh",
+                                        onBack: () => Navigator.pop(context),
+                                      ),
+                                    ),
+                                  );
+                                } : () {},
                               )
                             );
 
                             // 2. SHOW SECURE SQUAD MESH (Appears below Global Mesh when created/joined)
                             if (squadName != "Global Mesh") {
+                              String squadTitle = "Squad: $squadName";
                               chatTiles.add(
                                 ChatTile(
-                                  name: "Squad: $squadName",
+                                  name: squadTitle,
                                   message: widget.isConnected ? "Secure AES-256 channel active." : "Hardware disconnected...",
                                   time: "Now", 
                                   isUnread: true, 
                                   isConnected: widget.isConnected, 
-                                  onTap: widget.isConnected ? widget.onAction : () {},
+                                  onTap: widget.isConnected ? () {
+                                    // 👉 FIX: Route directly to the Squad!
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => ActiveChatScreen(
+                                          chatName: squadTitle,
+                                          onBack: () => Navigator.pop(context),
+                                        ),
+                                      ),
+                                    );
+                                  } : () {},
                                 )
                               );
                             }
