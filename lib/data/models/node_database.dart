@@ -57,25 +57,30 @@ class NodeDatabase {
   NodeDatabase._init();
 
   final ValueNotifier<Map<String, TacticalNode>> radarMap = ValueNotifier({});
+  
   String localNodeHexId = ""; 
+  int localNodeNum = 0; 
+
   final ValueNotifier<String?> latestIncomingMessage = ValueNotifier(null);
 
+  // 👉 RESTORED: The required pulse function to trigger the UI!
   void notifyNewMessage(String text) {
+    final securePulse = "$text|${DateTime.now().millisecondsSinceEpoch}";
     latestIncomingMessage.value = null; 
-    
     Future.microtask(() {
-      latestIncomingMessage.value = text;
+      latestIncomingMessage.value = securePulse;
     });
   }
 
-  void setLocalHardwareId(String hexId) {
+  void setLocalHardwareId(String hexId, int nodeNum) {
     localNodeHexId = hexId;
+    localNodeNum = nodeNum;
   }
-
-  // 👉 NEW: FLUSHES THE ENTIRE DATABASE BUFFER
+  
   void clearDatabase() {
     radarMap.value = {};
     localNodeHexId = "";
+    localNodeNum = 0; 
     latestIncomingMessage.value = null;
   }
 

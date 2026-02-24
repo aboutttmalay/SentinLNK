@@ -58,26 +58,26 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
   }
 
   // ==========================================
-  // 📥 HANDLE INCOMING MESSAGES (From Global Engine)
+  // 📥 HANDLE INCOMING MESSAGES
   // ==========================================
   void _onNewRadioMessage() {
-    final text = NodeDatabase.instance.latestIncomingMessage.value;
-    if (text != null && text.isNotEmpty) {
+    final payload = NodeDatabase.instance.latestIncomingMessage.value;
+    if (payload != null && payload.isNotEmpty) {
+      
+      // 👉 Clean the hidden timestamp off the message
+      final text = payload.split('|')[0]; 
       final timestamp = "${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}";
       
       if (mounted) {
         setState(() {
           _messages.add(ChatMessage(text: text, isMe: false, timestamp: timestamp));
         });
+        _scrollToBottom();
       }
-      StorageService.saveMessage(text, false, timestamp);
-      _scrollToBottom();
       
-      // Reset the notifier so it's ready for the next message
-      NodeDatabase.instance.latestIncomingMessage.value = null; 
+      // Note: HardwareBridge already saved this to StorageService in the background!
     }
   }
-
   // ==========================================
   // 📤 SEND MESSAGE (Via Global Engine)
   // ==========================================
