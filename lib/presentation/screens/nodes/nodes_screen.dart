@@ -5,6 +5,7 @@ import '../../../data/models/node_database.dart';
 import '../../../core/services/hardware_bridge.dart';
 import '../../../core/theme/app_colors.dart'; 
 import 'node_details_screen.dart';
+import '../../../data/models/tactical_node.dart';
 
 class NodesScreen extends StatefulWidget {
   const NodesScreen({super.key});

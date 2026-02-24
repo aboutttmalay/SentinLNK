@@ -1,56 +1,6 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:meshtastic_flutter/generated/mesh.pb.dart'; 
-
-class TacticalNode {
-  final String shortName;
-  final String longName;
-  final String hexId;
-  final String hardware;
-  final String role;
-  final double batteryLevel;
-  final double voltage;
-  final double snr;
-  final int? rssi;   
-  final int lastHeardUnix; 
-  final String lastHeardText;
-  final bool isLocal;
-
-  TacticalNode({
-    required this.shortName,
-    required this.longName,
-    required this.hexId,
-    required this.hardware,
-    required this.role,
-    required this.batteryLevel,
-    required this.voltage,
-    required this.snr,
-    this.rssi,
-    required this.lastHeardUnix,
-    required this.lastHeardText,
-    required this.isLocal,
-  });
-
-  TacticalNode copyWith({
-    String? shortName, String? longName, String? hardware, String? role,
-    double? batteryLevel, double? voltage, double? snr, int? rssi,
-    int? lastHeardUnix, String? lastHeardText, bool? isLocal,
-  }) {
-    return TacticalNode(
-      shortName: shortName ?? this.shortName,
-      longName: longName ?? this.longName,
-      hexId: this.hexId,
-      hardware: hardware ?? this.hardware,
-      role: role ?? this.role,
-      batteryLevel: batteryLevel ?? this.batteryLevel,
-      voltage: voltage ?? this.voltage,
-      snr: snr ?? this.snr,
-      rssi: rssi ?? this.rssi,
-      lastHeardUnix: lastHeardUnix ?? this.lastHeardUnix,
-      lastHeardText: lastHeardText ?? this.lastHeardText,
-      isLocal: isLocal ?? this.isLocal,
-    );
-  }
-}
+import 'tactical_node.dart'; // Make sure this import matches your file structure
 
 class NodeDatabase {
   static final NodeDatabase instance = NodeDatabase._init();
@@ -59,11 +9,10 @@ class NodeDatabase {
   final ValueNotifier<Map<String, TacticalNode>> radarMap = ValueNotifier({});
   
   String localNodeHexId = ""; 
-  int localNodeNum = 0; 
 
   final ValueNotifier<String?> latestIncomingMessage = ValueNotifier(null);
 
-  // 👉 RESTORED: The required pulse function to trigger the UI!
+  // 👉 The UI Pulse Generator (Ensures Flutter updates chat instantly)
   void notifyNewMessage(String text) {
     final securePulse = "$text|${DateTime.now().millisecondsSinceEpoch}";
     latestIncomingMessage.value = null; 
@@ -72,15 +21,13 @@ class NodeDatabase {
     });
   }
 
-  void setLocalHardwareId(String hexId, int nodeNum) {
+  void setLocalHardwareId(String hexId) {
     localNodeHexId = hexId;
-    localNodeNum = nodeNum;
   }
   
   void clearDatabase() {
     radarMap.value = {};
     localNodeHexId = "";
-    localNodeNum = 0; 
     latestIncomingMessage.value = null;
   }
 

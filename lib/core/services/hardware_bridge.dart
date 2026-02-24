@@ -41,6 +41,10 @@ class HardwareBridge {
       await Future.delayed(const Duration(milliseconds: 500));
       List<BluetoothService> services = await device.discoverServices();
       
+      BluetoothCharacteristic? fromRadio;
+      BluetoothCharacteristic? fromNum;
+
+      // 👉 THE FIX: We collect ALL characteristics first before doing anything!
       for (var s in services) {
         for (var c in s.characteristics) {
           String uuid = c.uuid.toString().toLowerCase();
@@ -50,15 +54,23 @@ class HardwareBridge {
             print("HardwareBridge: Linked TX Pipeline (toRadio)");
           }       
           if (uuid.contains("2c55")) {
+            fromRadio = c;
             print("HardwareBridge: Linked RX Mailbox (fromRadio)");
-            await _startRadioListener(c, s.characteristics.firstWhere((char) => char.uuid.toString().toLowerCase().contains("ed9d"))); 
+          }
+          if (uuid.contains("ed9d")) {
+            fromNum = c;
+            print("HardwareBridge: Linked Notification Pipeline (fromNum)");
           }
         }
       }
 
-      if (_toRadioChar != null) {
+      // 👉 Once we have all three pipelines, THEN we start the listener!
+      if (_toRadioChar != null && fromRadio != null && fromNum != null) {
         _isHardwareConnected = true;
-        print("HardwareBridge: Fully Linked and Operational!");
+        print("HardwareBridge: Fully Linked and Operational! Starting Listener...");
+        await _startRadioListener(fromRadio, fromNum); 
+      } else {
+        print("🔴 HardwareBridge: Missing required characteristics!");
       }
     } catch (e) {
       print("Hardware Bridge Error: $e");
@@ -78,7 +90,6 @@ class HardwareBridge {
     currentSquad.value = "Global Mesh"; 
   }
 
-  // 👉 RESTORED: Your original, flawless sync trigger!
   Future<void> _startRadioListener(BluetoothCharacteristic fromRadio, BluetoothCharacteristic fromNum) async {
     await fromNum.setNotifyValue(true);
 
@@ -104,7 +115,6 @@ class HardwareBridge {
     _drainMailbox(fromRadio); 
   }
 
-  // 👉 RESTORED: Your aggressive mailbox drainer (fixes the slow node fetching)
   Future<void> _drainMailbox(BluetoothCharacteristic fromRadio) async {
     if (_isReading) return;
     _isReading = true;
@@ -123,6 +133,7 @@ class HardwareBridge {
         }
       }
     } catch (e) {
+      print("Drain Mailbox Error: $e");
     } finally {
       _isReading = false; 
     }
@@ -133,8 +144,9 @@ class HardwareBridge {
       final fromRadio = FromRadio.fromBuffer(bytes);
 
       if (fromRadio.hasMyInfo()) {
-         String myHex = "!${fromRadio.myInfo.myNodeNum.toRadixString(16).toLowerCase().padLeft(8, '0')}";
-         NodeDatabase.instance.setLocalHardwareId(myHex, fromRadio.myInfo.myNodeNum);
+         int nodeNum = fromRadio.myInfo.myNodeNum; 
+         String myHex = "!${nodeNum.toRadixString(16).toLowerCase().padLeft(8, '0')}";
+         NodeDatabase.instance.setLocalHardwareId(myHex);
          return; 
       }
       if (fromRadio.hasNodeInfo()) {
@@ -192,7 +204,6 @@ class HardwareBridge {
     } catch (e) {}
   }
 
-  // 👉 FIXED: Safe packet ID, broadcast address, and no manual hardware ID parsing!
   Future<void> sendTacticalMessage(String text) async {
     if (_toRadioChar == null) return;
     try {
@@ -202,13 +213,14 @@ class HardwareBridge {
         ..portnum = PortNum.TEXT_MESSAGE_APP
         ..payload = utf8.encode(text);
       
-      final packetId = Random().nextInt(0xFFFFFFFF);
+      final packetId = Random().nextInt(0x7FFFFFFF);
 
       final packet = MeshPacket()
         ..id = packetId
         ..decoded = data
         ..to = 0xFFFFFFFF // Broadcast address
-        ..wantAck = false; // Prevents radio from dropping the broadcast
+        ..wantAck = false // Prevents radio from dropping the broadcast
+        ..channel = 0;    // Broadcast channel
         
       final toRadio = ToRadio()..packet = packet;
       await _toRadioChar!.write(toRadio.writeToBuffer(), withoutResponse: false);

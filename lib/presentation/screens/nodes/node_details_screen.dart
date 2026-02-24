@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-
+import '../../../data/models/tactical_node.dart';
 import '../../../data/models/node_database.dart'; 
 import '../../../core/theme/app_colors.dart'; // 👉 Implements your SentinLNK Theme!
 
