@@ -1,23 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-// 👉 WE REMOVED tactical_node.dart BECAUSE IT IS NOW INSIDE node_database.dart!
 import '../../../data/models/node_database.dart'; 
+import '../../../core/theme/app_colors.dart'; // 👉 Implements your SentinLNK Theme!
 
 class NodeDetailsScreen extends StatelessWidget {
-  final TacticalNode node; // Fixed the variable name
+  final TacticalNode node;
 
-  const NodeDetailsScreen({super.key, required this.node}); // Fixed constructor
+  const NodeDetailsScreen({super.key, required this.node});
 
   @override
   Widget build(BuildContext context) {
-    // 👉 Make the details screen listen to the live database!
     return ValueListenableBuilder<Map<String, TacticalNode>>(
       valueListenable: NodeDatabase.instance.radarMap,
       builder: (context, nodesMap, child) {
         
-        // Grab the most up-to-date version of this node from the database
-        // If it updates in the background, this screen will instantly redraw!
         final liveNode = nodesMap[node.hexId] ?? node;
 
         String nodeNumStr = "Unknown";
@@ -28,20 +25,30 @@ class NodeDetailsScreen extends StatelessWidget {
         }
 
         return Scaffold(
-          backgroundColor: const Color(0xFF0F1714),
+          backgroundColor: AppColors.bg, // 👉 Uses your app background
           appBar: AppBar(
-            backgroundColor: const Color(0xFF0F1714),
+            backgroundColor: AppColors.surface, // 👉 Uses your app surface
             elevation: 0,
             leading: IconButton(
-              icon: const Icon(LucideIcons.arrowLeft, color: Colors.white),
+              icon: const Icon(LucideIcons.chevronLeft, color: Colors.white),
               onPressed: () => Navigator.pop(context),
             ),
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text("Details", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                Text(liveNode.longName, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                const Text(
+                  "NODE DETAILS", 
+                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1)
+                ),
+                Text(
+                  liveNode.longName.toUpperCase(), 
+                  style: const TextStyle(color: AppColors.primary, fontSize: 10, letterSpacing: 1.5)
+                ),
               ],
+            ),
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(1.0),
+              child: Container(color: AppColors.border, height: 1.0),
             ),
           ),
           body: SingleChildScrollView(
@@ -49,48 +56,49 @@ class NodeDetailsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildSectionHeader("Details"),
+                _buildSectionHeader("IDENTITY"),
                 _buildCard([
                   _buildRowData("Short Name", liveNode.shortName, "Device Role", liveNode.role),
-                  const Divider(color: Color(0xFF2A3630), height: 32),
+                  const Divider(color: AppColors.border, height: 32),
                   _buildRowData("Node ID", liveNode.hexId, "Node Number", nodeNumStr),
-                  const Divider(color: Color(0xFF2A3630), height: 32),
-                  _buildSingleData("Last heard", liveNode.lastHeardText),
-                  const Divider(color: Color(0xFF2A3630), height: 32),
-                  _buildRowData("User ID", liveNode.hexId, "Uptime", "Online"),
-                  const Divider(color: Color(0xFF2A3630), height: 32),
+                  const Divider(color: AppColors.border, height: 32),
+                  _buildSingleData("Last Heard", liveNode.lastHeardText),
+                  const Divider(color: AppColors.border, height: 32),
                   _buildSingleData("Public Key", "gV14UwP... (Encrypted)", icon: LucideIcons.lock),
                 ]),
 
-                _buildSectionHeader("Telemetry"),
+                _buildSectionHeader("TELEMETRY"),
                 _buildCard([
-                  // NOW THIS WILL UPDATE LIVE!
                   _buildTelemetryRow(LucideIcons.battery, "Battery: ${liveNode.batteryLevel.toInt()}%", active: liveNode.batteryLevel > 0),
-                  const Divider(color: Color(0xFF2A3630), height: 24),
-                  _buildTelemetryRow(LucideIcons.zap, "Voltage: ${liveNode.voltage.toStringAsFixed(2)}V"),
-                  const Divider(color: Color(0xFF2A3630), height: 24),
-                  _buildTelemetryRow(LucideIcons.signal, "SNR: ${liveNode.snr} dB"),
+                  const Divider(color: AppColors.border, height: 24),
+                  _buildTelemetryRow(LucideIcons.zap, "Voltage: ${liveNode.voltage.toStringAsFixed(2)}V", active: liveNode.voltage > 0),
+                  const Divider(color: AppColors.border, height: 24),
+                  _buildTelemetryRow(LucideIcons.signal, "SNR: ${liveNode.snr} dB", active: true),
                 ]),
 
-                _buildSectionHeader("Device"),
+                _buildSectionHeader("HARDWARE"),
                 _buildCard([
                   Center(
                     child: Container(
                       width: 80, height: 80,
-                      decoration: const BoxDecoration(color: Color(0xFF8A6222), shape: BoxShape.circle),
-                      child: const Icon(LucideIcons.radio, color: Colors.white, size: 40),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.1), 
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.3), width: 2),
+                      ),
+                      child: const Icon(LucideIcons.radio, color: AppColors.primary, size: 40),
                     ),
                   ),
                   const SizedBox(height: 24),
                   Row(
                     children: [
-                      const Icon(LucideIcons.cpu, color: Colors.grey, size: 18),
+                      const Icon(LucideIcons.cpu, color: AppColors.textDim, size: 18),
                       const SizedBox(width: 12),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text("Hardware", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                          Text(liveNode.hardware, style: const TextStyle(color: Colors.white, fontSize: 14)),
+                          const Text("Model", style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+                          Text(liveNode.hardware, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
                         ],
                       ),
                     ],
@@ -98,12 +106,31 @@ class NodeDetailsScreen extends StatelessWidget {
                   const SizedBox(height: 16),
                   const Row(
                     children: [
-                      Icon(LucideIcons.checkCircle2, color: Color(0xFF22C55E), size: 18),
+                      Icon(LucideIcons.checkCircle2, color: AppColors.primary, size: 18),
                       SizedBox(width: 12),
-                      Text("Supported", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                      Text("Firmware Supported", style: TextStyle(color: AppColors.primary, fontSize: 14, fontWeight: FontWeight.bold)),
                     ],
                   ),
                 ]),
+                
+                const SizedBox(height: 24),
+                
+                // 👉 Full-width Share Button styled for SentinLNK
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {},
+                    icon: const Icon(LucideIcons.qrCode, color: Colors.white, size: 18),
+                    label: const Text("SHARE CONTACT", style: TextStyle(color: Colors.white, letterSpacing: 1, fontWeight: FontWeight.bold)),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      side: const BorderSide(color: AppColors.border),
+                      backgroundColor: AppColors.surface,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
               ],
             ),
           ),
@@ -114,8 +141,11 @@ class NodeDetailsScreen extends StatelessWidget {
 
   Widget _buildSectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.only(left: 4, top: 24, bottom: 8),
-      child: Text(title, style: const TextStyle(color: Color(0xFF86EFAC), fontSize: 16, fontWeight: FontWeight.bold)),
+      padding: const EdgeInsets.only(left: 4, top: 16, bottom: 8),
+      child: Text(
+        title, 
+        style: const TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)
+      ),
     );
   }
 
@@ -123,7 +153,11 @@ class NodeDetailsScreen extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: const Color(0xFF142415), borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(
+        color: AppColors.surface, 
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
     );
   }
@@ -143,8 +177,8 @@ class NodeDetailsScreen extends StatelessWidget {
       children: [
         Row(
           children: [
-            if (icon != null) ...[Icon(icon, color: Colors.grey, size: 12), const SizedBox(width: 4)],
-            Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            if (icon != null) ...[Icon(icon, color: AppColors.textDim, size: 12), const SizedBox(width: 4)],
+            Text(title, style: const TextStyle(color: AppColors.textDim, fontSize: 12)),
           ],
         ),
         const SizedBox(height: 4),
@@ -156,14 +190,14 @@ class NodeDetailsScreen extends StatelessWidget {
   Widget _buildTelemetryRow(IconData icon, String title, {bool active = false}) {
     return Row(
       children: [
-        Icon(icon, color: const Color(0xFF86EFAC), size: 18),
+        Icon(icon, color: AppColors.textDim, size: 18),
         const SizedBox(width: 12),
         Expanded(child: Text(title, style: const TextStyle(color: Colors.white, fontSize: 14))),
         if (active)
           Container(
             padding: const EdgeInsets.all(4),
-            decoration: const BoxDecoration(color: Color(0xFF22C55E), shape: BoxShape.circle),
-            child: const Icon(LucideIcons.check, color: Colors.black, size: 12),
+            decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.2), shape: BoxShape.circle),
+            child: const Icon(LucideIcons.check, color: AppColors.primary, size: 12),
           ),
       ],
     );

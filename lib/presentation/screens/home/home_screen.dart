@@ -7,6 +7,7 @@ import '../../widgets/pulse_animation.dart';
 import '../scanning/scan_screen.dart';
 import 'widgets/chat_tile.dart';
 import '../settings/settings_tab.dart';
+import '../nodes/nodes_screen.dart'; // 👉 NEW: Imported our real Nodes Screen!
 
 class HomeScreen extends StatefulWidget {
   final bool isConnected;
@@ -371,13 +372,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   )
                 : _currentTabIndex == 1
-                    ? const Center(
-                        child: Text(
-                          "NODE TOPOLOGY UNAVAILABLE",
-                          style: TextStyle(color: AppColors.textDim, letterSpacing: 2),
-                        ),
-                      )
-                    : SettingsTab(isConnected: widget.isConnected), // 👉 THIS LOADS YOUR NEW SETTINGS PAGE!
+                    ? const NodesScreen() // 👉 THE FIX: IT NOW LOADS THE ACTUAL NODES SCREEN!
+                    : SettingsTab(isConnected: widget.isConnected), 
             ),
           ],
         ),
@@ -395,7 +391,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         padding: EdgeInsets.only(bottom: Platform.isIOS ? 15 : 0),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly, // Automatically creates equal spacing
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly, 
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             // Option 1: Messages
@@ -407,7 +403,7 @@ class _HomeScreenState extends State<HomeScreen> {
             // Option 3: Settings
             _buildFooterTab(LucideIcons.settings, "Settings", 2),
 
-            // Option 4: The Hardware Options Menu (Divider removed entirely)
+            // Option 4: The Hardware Options Menu 
             _buildBlinkingHardwareLogo(),
           ],
         ),

@@ -4,6 +4,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import '../../../data/models/node_database.dart';
 import 'node_details_screen.dart';
 import '../../../core/services/hardware_bridge.dart';
+import '../../../core/theme/app_colors.dart'; // 👉 Uses your app's actual theme!
 
 class NodesScreen extends StatefulWidget {
   const NodesScreen({super.key});
@@ -16,7 +17,6 @@ class _NodesScreenState extends State<NodesScreen> {
   @override
   void initState() {
     super.initState();
-    print("📌 NodesScreen initState");
     HardwareBridge.instance.connectAndSync();
   }
 
@@ -25,76 +25,121 @@ class _NodesScreenState extends State<NodesScreen> {
     return ValueListenableBuilder<Map<String, TacticalNode>>(
       valueListenable: NodeDatabase.instance.radarMap,
       builder: (context, nodesMap, child) {
-        // 🔥🔥🔥 DISTINCTIVE PRINT
-        print("🔥🔥🔥 BUILDER FIRED at ${DateTime.now().toIso8601String()}");
-        print("🔥 Map keys: ${nodesMap.keys.join(', ')}");
-        final nodes = nodesMap.values.toList(); // ← only one declaration
-        print("🔥 Nodes list length: ${nodes.length}");
+        final nodes = nodesMap.values.toList();
 
+        // Sort: Local node at the top, then alphabetically
         nodes.sort((a, b) {
           if (a.isLocal && !b.isLocal) return -1;
           if (!a.isLocal && b.isLocal) return 1;
           return a.longName.compareTo(b.longName);
         });
 
-        return Scaffold(
-          backgroundColor: const Color(0xFF0F1714),
-          appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  "Nodes",
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-                Text(
-                  "(${nodes.length} online / ${nodes.length} shown / ${nodes.length} total)",
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(LucideIcons.listFilter, color: Colors.white),
-                onPressed: () {},
-              )
-            ],
-          ),
-          body: Column(
+        // We use a Container instead of a Scaffold so it seamlessly blends into your HomeScreen
+        return Container(
+          color: AppColors.bg,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Search Bar
+              
+              // ==========================================
+              // CUSTOM TACTICAL HEADER (Matches Chat Screen)
+              // ==========================================
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "TACTICAL NODES",
+                          style: TextStyle(
+                            fontSize: 20, 
+                            fontWeight: FontWeight.bold, 
+                            color: Colors.white,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          "${nodes.length} ACTIVE SIGNALS",
+                          style: const TextStyle(
+                            fontSize: 10, 
+                            color: AppColors.primary, 
+                            letterSpacing: 1.5
+                          ),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(LucideIcons.listFilter, color: Colors.white),
+                      onPressed: () {},
+                    )
+                  ],
+                ),
+              ),
+
+              // ==========================================
+              // SEARCH BAR
+              // ==========================================
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                 child: TextField(
                   style: const TextStyle(color: Colors.white),
                   decoration: InputDecoration(
-                    hintText: "Filter",
-                    hintStyle: const TextStyle(color: Colors.grey),
-                    prefixIcon: const Icon(LucideIcons.search, color: Colors.grey),
+                    hintText: "Filter nodes...",
+                    hintStyle: const TextStyle(color: AppColors.textDim),
+                    prefixIcon: const Icon(LucideIcons.search, color: AppColors.textDim),
                     filled: true,
-                    fillColor: const Color(0xFF1A2421),
+                    fillColor: AppColors.surface,
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Colors.grey, width: 0.5),
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppColors.border),
                     ),
                     enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: Colors.grey, width: 0.5),
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppColors.border),
                     ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: AppColors.primary),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 0),
                   ),
                 ),
               ),
 
-              // 👇 TEMPORARY: Show simple text with node count
+              // ==========================================
+              // NODE LIST
+              // ==========================================
               Expanded(
-                child: Center(
-                  child: Text(
-                    "Nodes: ${nodes.length}",
-                    style: const TextStyle(color: Colors.white, fontSize: 24),
-                  ),
-                ),
+                child: nodes.isEmpty
+                    ? const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(color: AppColors.primary),
+                            SizedBox(height: 16),
+                            Text("📡 Syncing topology...",
+                                 style: TextStyle(color: AppColors.textDim)),
+                          ],
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: () async {
+                          await HardwareBridge.instance.connectAndSync();
+                        },
+                        color: AppColors.primary,
+                        backgroundColor: AppColors.surface,
+                        child: ListView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: nodes.length,
+                          itemBuilder: (context, index) {
+                            return _buildNodeCard(nodes[index]);
+                          },
+                        ),
+                      ),
               ),
             ],
           ),
@@ -103,12 +148,16 @@ class _NodesScreenState extends State<NodesScreen> {
     );
   }
 
+  // ==========================================
+  // NODE CARD UI (Styled like your original app)
+  // ==========================================
   Widget _buildNodeCard(TacticalNode node) {
-    // … (unchanged, but currently not used)
-    final Color cardColor = node.isLocal ? const Color(0xFF2A2415) : const Color(0xFF142415);
-    final Color badgeColor = node.isLocal ? const Color(0xFFFACC15) : const Color(0xFF22C55E);
+    final bool isLocal = node.isLocal;
+    
+    // Assign colors based on your app's theme
+    final Color badgeColor = isLocal ? Colors.orangeAccent : AppColors.primary;
     final Color textColor = Colors.white;
-    final Color dimTextColor = Colors.grey[400]!;
+    final Color dimTextColor = AppColors.textDim;
 
     return GestureDetector(
       onTap: () {
@@ -123,30 +172,34 @@ class _NodesScreenState extends State<NodesScreen> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: cardColor,
+          color: AppColors.surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+          border: Border.all(
+            // Highlight the local node with an orange border
+            color: isLocal ? Colors.orangeAccent.withValues(alpha: 0.3) : AppColors.border,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // TOP ROW: Badge, Lock, Name, Cloud Icon
+            
+            // --- 1. HEADER ROW ---
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: badgeColor,
-                    borderRadius: BorderRadius.circular(6),
+                    color: badgeColor.withValues(alpha: 0.2), 
+                    borderRadius: BorderRadius.circular(6)
                   ),
                   child: Text(
                     node.shortName,
-                    style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: badgeColor, fontWeight: FontWeight.bold, fontSize: 14),
                   ),
                 ),
                 const SizedBox(width: 12),
-                const Icon(LucideIcons.lock, color: Color(0xFF22C55E), size: 18),
+                Icon(LucideIcons.lock, color: badgeColor, size: 16),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -155,7 +208,10 @@ class _NodesScreenState extends State<NodesScreen> {
                       Text(
                         node.longName,
                         style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w600),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
+                      const SizedBox(height: 2),
                       Row(
                         children: [
                           Icon(LucideIcons.radioReceiver, color: dimTextColor, size: 12),
@@ -169,24 +225,28 @@ class _NodesScreenState extends State<NodesScreen> {
                     ],
                   ),
                 ),
-                if (node.isLocal)
-                  const Icon(LucideIcons.cloud, color: Color(0xFF22C55E), size: 20),
+                if (isLocal)
+                  Icon(LucideIcons.cloud, color: badgeColor, size: 20),
               ],
             ),
             const SizedBox(height: 16),
 
-            // MIDDLE ROW: Telemetry (Battery, Signal)
-            if (node.isLocal)
-              Row(
+            // --- 2. TELEMETRY ROW ---
+            if (isLocal)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(LucideIcons.batteryCharging, color: dimTextColor, size: 14),
-                  const SizedBox(width: 4),
-                  Text("PWR ${node.voltage.toStringAsFixed(2)}V",
-                      style: TextStyle(color: dimTextColor, fontSize: 13, fontWeight: FontWeight.bold)),
-                  const SizedBox(width: 16),
-                  Icon(LucideIcons.barChart2, color: dimTextColor, size: 14),
-                  const SizedBox(width: 4),
-                  Text("ChUtil 0.0%", style: TextStyle(color: dimTextColor, fontSize: 13)),
+                  Row(
+                    children: [
+                      Icon(LucideIcons.zap, color: dimTextColor, size: 16),
+                      const SizedBox(width: 6),
+                      Text("PWR ${node.voltage.toStringAsFixed(2)}V", style: TextStyle(color: dimTextColor, fontSize: 13, fontWeight: FontWeight.w500)),
+                      const SizedBox(width: 16),
+                      Icon(LucideIcons.barChart2, color: dimTextColor, size: 16),
+                      const SizedBox(width: 6),
+                      Text("ChUtil 0.0%", style: TextStyle(color: dimTextColor, fontSize: 13)),
+                    ],
+                  ),
                 ],
               )
             else
@@ -195,56 +255,58 @@ class _NodesScreenState extends State<NodesScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(LucideIcons.battery, color: dimTextColor, size: 14),
-                      const SizedBox(width: 4),
+                      Icon(LucideIcons.battery, color: dimTextColor, size: 16),
+                      const SizedBox(width: 6),
                       Text("${node.batteryLevel.toInt()}%", style: TextStyle(color: dimTextColor, fontSize: 13)),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   Row(
                     children: [
-                      Text("SNR ${node.snr}dB RSSI ${node.rssi ?? '--'}dBm",
-                          style: const TextStyle(color: Color(0xFF22C55E), fontSize: 13)),
-                      const SizedBox(width: 8),
-                      const Icon(LucideIcons.signal, color: Color(0xFF22C55E), size: 14),
+                      Text("SNR ${node.snr}dB  RSSI ${node.rssi ?? '--'}dBm", style: TextStyle(color: badgeColor, fontSize: 13)),
+                      const SizedBox(width: 12),
+                      Icon(LucideIcons.signal, color: badgeColor, size: 14),
                       const SizedBox(width: 4),
-                      const Text("Good", style: TextStyle(color: Color(0xFF22C55E), fontSize: 13)),
+                      Text("Good", style: TextStyle(color: badgeColor, fontSize: 13, fontWeight: FontWeight.w500)),
                     ],
                   ),
                 ],
               ),
-
+            
             const SizedBox(height: 16),
 
-            // BOTTOM ROW: Hardware, Role, Hex ID
+            // --- 3. BOTTOM HARDWARE ROW ---
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Icon(LucideIcons.cpu, color: dimTextColor, size: 14),
-                    const SizedBox(width: 4),
-                    Text(node.hardware, style: TextStyle(color: dimTextColor, fontSize: 13)),
-                  ],
-                ),
-                Row(
-                  children: [
-                    Icon(LucideIcons.user, color: dimTextColor, size: 14),
-                    const SizedBox(width: 4),
-                    Text(node.role, style: TextStyle(color: dimTextColor, fontSize: 13, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-                Row(
-                  children: [
-                    Icon(LucideIcons.fingerprint, color: dimTextColor, size: 14),
-                    const SizedBox(width: 4),
-                    Text(node.hexId, style: TextStyle(color: dimTextColor, fontSize: 13)),
-                  ],
-                ),
+                _buildBottomIconText(LucideIcons.cpu, node.hardware, dimTextColor),
+                _buildBottomIconText(LucideIcons.user, node.role, dimTextColor),
+                _buildBottomIconText(LucideIcons.fingerprint, node.hexId, dimTextColor),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // Safe builder to prevent text overflow layout crashes
+  Widget _buildBottomIconText(IconData icon, String text, Color color) {
+    return Expanded(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 14),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              text, 
+              style: TextStyle(color: color, fontSize: 12),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }
