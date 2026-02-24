@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-// import '../../../core/security/security_manager.dart'; // For future encryption features
+
 import '../../../core/storage/storage_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/models/chat_message.dart';
+import '../../../data/models/node_database.dart'; 
+import '../../../core/services/hardware_bridge.dart'; // 👉 NEW: Global Engine
+
 
 class ActiveChatScreen extends StatefulWidget {
   final VoidCallback onBack;
@@ -24,6 +27,20 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
   void initState() {
     super.initState();
     _loadMessages();
+    
+    // 👉 1. CONNECT HARDWARE (If it isn't already)
+    // This allows the user to open Chat before Nodes and still connect
+    HardwareBridge.instance.connectAndSync(); 
+    
+    // 👉 2. LISTEN FOR BACKGROUND MESSAGES
+    // The Global Engine will update this notifier when a new text arrives
+    NodeDatabase.instance.latestIncomingMessage.addListener(_onNewRadioMessage);
+  }
+
+  @override
+  void dispose() {
+    NodeDatabase.instance.latestIncomingMessage.removeListener(_onNewRadioMessage);
+    super.dispose();
   }
 
   Future<void> _loadMessages() async {
@@ -35,25 +52,47 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
     _scrollToBottom();
   }
 
+  // ==========================================
+  // 📥 HANDLE INCOMING MESSAGES (From Global Engine)
+  // ==========================================
+  void _onNewRadioMessage() {
+    final text = NodeDatabase.instance.latestIncomingMessage.value;
+    if (text != null && text.isNotEmpty) {
+      final timestamp = "${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}";
+      
+      if (mounted) {
+        setState(() {
+          _messages.add(ChatMessage(text: text, isMe: false, timestamp: timestamp));
+        });
+      }
+      StorageService.saveMessage(text, false, timestamp);
+      _scrollToBottom();
+      
+      // Reset the notifier so it's ready for the next message
+      NodeDatabase.instance.latestIncomingMessage.value = null; 
+    }
+  }
+
+  // ==========================================
+  // 📤 SEND MESSAGE (Via Global Engine)
+  // ==========================================
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
 
     final timestamp = "${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}";
     
+    // 1. Save to Local Memory
     await StorageService.saveMessage(text.trim(), true, timestamp);
 
-    final newMessage = ChatMessage(
-      text: text.trim(),
-      isMe: true,
-      timestamp: timestamp,
-    );
-
+    // 2. Update UI
     setState(() {
-      _messages.add(newMessage);
+      _messages.add(ChatMessage(text: text.trim(), isMe: true, timestamp: timestamp));
       _messageController.clear();
     });
-
     _scrollToBottom();
+
+    // 👉 3. FIRE THE MESSAGE VIA GLOBAL ENGINE
+    await HardwareBridge.instance.sendTacticalMessage(text.trim());
   }
 
   void _scrollToBottom() {
@@ -79,16 +118,21 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
           icon: const Icon(LucideIcons.chevronLeft, color: Colors.white),
           onPressed: widget.onBack,
         ),
-        title: const Column(
+        title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            const Text(
               "ALPHA SQUAD",
               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white, letterSpacing: 1),
             ),
             Text(
-              "SECURE LORA LINK ACTIVE",
-              style: TextStyle(color: AppColors.primary, fontSize: 10, letterSpacing: 1.5),
+              // Ask the Global Engine if we are online!
+              HardwareBridge.instance.isConnected ? "🟢 SECURE LORA LINK ACTIVE" : "🔴 SCANNING FREQUENCIES...",
+              style: TextStyle(
+                color: HardwareBridge.instance.isConnected ? AppColors.primary : Colors.orangeAccent, 
+                fontSize: 10, 
+                letterSpacing: 1.5
+              ),
             ),
           ],
         ),
@@ -151,7 +195,6 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
                   ),
           ),
           
-          // Standard Chat Input
           Container(
             padding: const EdgeInsets.all(16),
             decoration: const BoxDecoration(
