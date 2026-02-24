@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:meshtastic_flutter/generated/mesh.pb.dart'; 
 
-// ==========================================
-// 👉 1. THE DATA MODEL
-// ==========================================
 class TacticalNode {
   final String shortName;
   final String longName;
@@ -55,9 +52,6 @@ class TacticalNode {
   }
 }
 
-// ==========================================
-// 👉 2. THE OFFICIAL REPLICA DATABASE
-// ==========================================
 class NodeDatabase {
   static final NodeDatabase instance = NodeDatabase._init();
   NodeDatabase._init();
@@ -67,16 +61,28 @@ class NodeDatabase {
   final ValueNotifier<String?> latestIncomingMessage = ValueNotifier(null);
 
   void notifyNewMessage(String text) {
-    latestIncomingMessage.value = text;
+    latestIncomingMessage.value = null; 
+    
+    Future.microtask(() {
+      latestIncomingMessage.value = text;
+    });
   }
 
   void setLocalHardwareId(String hexId) {
     localNodeHexId = hexId;
   }
 
+  // 👉 NEW: FLUSHES THE ENTIRE DATABASE BUFFER
+  void clearDatabase() {
+    radarMap.value = {};
+    localNodeHexId = "";
+    latestIncomingMessage.value = null;
+  }
+
   void processDirectNodeInfo(NodeInfo info) {
     final current = Map<String, TacticalNode>.from(radarMap.value);
-    String hexId = "!${info.num.toRadixString(16).toLowerCase()}";
+    
+    String hexId = "!${info.num.toRadixString(16).toLowerCase().padLeft(8, '0')}";
     
     TacticalNode node = current[hexId] ?? TacticalNode(
       shortName: hexId.length > 4 ? hexId.substring(hexId.length - 4) : hexId,
@@ -107,7 +113,6 @@ class NodeDatabase {
     Future.microtask(() { radarMap.value = current; });
   }
 
-  // 👉 NEW: Instantly update LIVE Signal Metrics from ANY packet!
   void updateSignalMetrics(String hexId, double snr, int rssi) {
     final current = Map<String, TacticalNode>.from(radarMap.value);
     

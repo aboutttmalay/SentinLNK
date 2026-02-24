@@ -558,10 +558,10 @@ class _SecurityConfigScreenState extends State<SecurityConfigScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(6)),
-                  // 👉 THE OVERFLOW FIX: Wrapped the string of dots in Expanded so it shrinks properly!
                   child: const Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
+                      // 👉 FIX: Wrapped in Expanded to stop the 3.6 pixel overflow!
                       Expanded(
                         child: Text(
                           "••••••••••••••••••••••••", 

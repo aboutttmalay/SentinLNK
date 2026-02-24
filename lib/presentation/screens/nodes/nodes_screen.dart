@@ -21,7 +21,6 @@ class _NodesScreenState extends State<NodesScreen> {
     HardwareBridge.instance.connectAndSync();
   }
 
-  // 👉 DYNAMIC SIGNAL QUALITY LOGIC
   String _getSignalQualityText(int? rssi) {
     if (rssi == null || rssi == -100) return "Waiting...";
     if (rssi >= -70) return "Excellent";
@@ -37,13 +36,13 @@ class _NodesScreenState extends State<NodesScreen> {
       builder: (context, nodesMap, child) {
         final nodes = nodesMap.values.toList();
 
-        // 👉 SORTS LOCAL NODE (YELLOW) TO THE VERY TOP!
         nodes.sort((a, b) {
           if (a.isLocal && !b.isLocal) return -1;
           if (!a.isLocal && b.isLocal) return 1;
           return a.longName.compareTo(b.longName);
         });
 
+        // We use a Container instead of a Scaffold so it seamlessly blends into your HomeScreen
         return Container(
           color: AppColors.bg,
           child: Column(
@@ -56,12 +55,7 @@ class _NodesScreenState extends State<NodesScreen> {
                   children: [
                     const Text(
                       "NODES",
-                      style: TextStyle(
-                        fontSize: 22, 
-                        fontWeight: FontWeight.bold, 
-                        color: Colors.white, 
-                        letterSpacing: 1.2
-                      ),
+                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
                     ),
                     Text(
                       "(${nodes.length} online / ${nodes.length} total)",
@@ -81,18 +75,9 @@ class _NodesScreenState extends State<NodesScreen> {
                     prefixIcon: const Icon(LucideIcons.search, color: AppColors.textDim),
                     filled: true,
                     fillColor: AppColors.surface,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppColors.border),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppColors.border),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppColors.primary),
-                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.border)),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.border)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primary)),
                     contentPadding: const EdgeInsets.symmetric(vertical: 0),
                   ),
                 ),
@@ -111,17 +96,13 @@ class _NodesScreenState extends State<NodesScreen> {
                         ),
                       )
                     : RefreshIndicator(
-                        onRefresh: () async {
-                          await HardwareBridge.instance.connectAndSync();
-                        },
+                        onRefresh: () async { await HardwareBridge.instance.connectAndSync(); },
                         color: AppColors.primary,
                         backgroundColor: AppColors.surface,
                         child: ListView.builder(
                           padding: const EdgeInsets.all(16),
                           itemCount: nodes.length,
-                          itemBuilder: (context, index) {
-                            return _buildNodeCard(nodes[index], context);
-                          },
+                          itemBuilder: (context, index) { return _buildNodeCard(nodes[index], context); },
                         ),
                       ),
               ),
@@ -139,17 +120,11 @@ class _NodesScreenState extends State<NodesScreen> {
     final Color dimTextColor = AppColors.textDim;
 
     return GestureDetector(
-      onTap: () {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => NodeDetailsScreen(node: node)));
-      },
+      onTap: () { Navigator.push(context, MaterialPageRoute(builder: (context) => NodeDetailsScreen(node: node))); },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: isLocal ? Colors.orangeAccent.withValues(alpha: 0.3) : AppColors.border),
-        ),
+        decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: isLocal ? Colors.orangeAccent.withValues(alpha: 0.3) : AppColors.border)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -193,13 +168,7 @@ class _NodesScreenState extends State<NodesScreen> {
                     children: [
                       Icon(LucideIcons.zap, color: dimTextColor, size: 16),
                       const SizedBox(width: 6),
-                      // 👉 FIX: Wrapped in Expanded to prevent overflow
-                      Expanded(
-                        child: Text("PWR ${node.voltage.toStringAsFixed(2)}V", 
-                          style: TextStyle(color: dimTextColor, fontSize: 13, fontWeight: FontWeight.w500),
-                          maxLines: 1, overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
+                      Expanded(child: Text("PWR ${node.voltage.toStringAsFixed(2)}V", style: TextStyle(color: dimTextColor, fontSize: 13, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis)),
                       Icon(LucideIcons.barChart2, color: dimTextColor, size: 16),
                       const SizedBox(width: 6),
                       Text("ChUtil 0.0%", style: TextStyle(color: dimTextColor, fontSize: 13)),
@@ -221,15 +190,7 @@ class _NodesScreenState extends State<NodesScreen> {
                   const SizedBox(height: 6),
                   Row(
                     children: [
-                      // 👉 FIX: Wrapped the SNR/RSSI text in an Expanded widget and formatted the decimal!
-                      Expanded(
-                        child: Text(
-                          "SNR ${node.snr.toStringAsFixed(1)}dB  RSSI ${node.rssi ?? '--'}dBm", 
-                          style: TextStyle(color: badgeColor, fontSize: 13),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
+                      Expanded(child: Text("SNR ${node.snr.toStringAsFixed(1)}dB  RSSI ${node.rssi ?? '--'}dBm", style: TextStyle(color: badgeColor, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis)),
                       const SizedBox(width: 4),
                       Icon(LucideIcons.signal, color: badgeColor, size: 14),
                       const SizedBox(width: 4),
@@ -240,7 +201,6 @@ class _NodesScreenState extends State<NodesScreen> {
               ),
             
             const SizedBox(height: 16),
-
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -255,7 +215,6 @@ class _NodesScreenState extends State<NodesScreen> {
     );
   }
 
-  // Safe wrapper for bottom row icons
   Widget _buildBottomIconText(IconData icon, String text, Color color) {
     return Expanded(
       child: Row(
@@ -263,9 +222,7 @@ class _NodesScreenState extends State<NodesScreen> {
         children: [
           Icon(icon, color: color, size: 14),
           const SizedBox(width: 4),
-          Flexible(
-            child: Text(text, style: TextStyle(color: color, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
+          Flexible(child: Text(text, style: TextStyle(color: color, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis)),
         ],
       ),
     );
