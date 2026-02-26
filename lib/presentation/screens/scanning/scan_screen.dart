@@ -114,13 +114,17 @@ class _ScanScreenState extends State<ScanScreen> {
         
         if (deviceName.contains("meshtastic") || deviceName.contains("rak") || advName.contains("meshtastic") || advName.contains("rak")) {
           
-          // Don't show it in the "New Devices" list if it's already in our "Saved Nodes" list
-          if (!_savedNodes.containsKey(r.device.remoteId.str) && !_scannedDevices.any((d) => d.remoteId == r.device.remoteId)) {
+          // 🚨 SENIOR FIX: Strict Deduplication.
+          // Block if it's already in "Saved Nodes" OR if we've already scanned this MAC address during this sweep.
+          bool isAlreadySaved = _savedNodes.containsKey(r.device.remoteId.str);
+          bool isAlreadyScanned = _scannedDevices.any((d) => d.remoteId.str == r.device.remoteId.str);
+
+          if (!isAlreadySaved && !isAlreadyScanned) {
             setState(() {
               _scannedDevices.add(r.device); 
             });
             String displayName = r.device.platformName.isNotEmpty ? r.device.platformName : advName;
-            _addScanLogEntry("DETECTED", "Found new node: $displayName");
+            _addScanLogEntry("DETECTED", "Found node: $displayName");
           }
         }
       }

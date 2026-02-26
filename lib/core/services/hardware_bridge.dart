@@ -158,21 +158,26 @@ class HardwareBridge {
         if (packet.hasDecoded()) {
           final data = packet.decoded;
           
+          // 👉 FIX: Check for Text Messages regardless of which channel they arrived on
           if (data.portnum == PortNum.TEXT_MESSAGE_APP) {
              try {
                String messageText = utf8.decode(data.payload);
                if (senderId != NodeDatabase.instance.localNodeHexId) {
+                 
+                 // Check which channel the packet physically arrived on
                  bool isSquadMsg = (packet.channel == 1);
                  String type = isSquadMsg ? "SQUAD" : "GLOBAL";
-                 print("📥 INCOMING [$type]: $messageText");
+                 
+                 print("📥 INCOMING [$type] on Channel ${packet.channel}: $messageText");
+                 
                  final timestamp = "${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}";
                  
-                 // 👉 THE MISSING FIX: Actually save incoming messages to the correct database!
                  StorageService.saveMessage(messageText, false, timestamp, isSquad: isSquadMsg);
-                 
                  NodeDatabase.instance.notifyNewMessage("$type|$messageText"); 
                }
-             } catch(e) {}
+             } catch(e) {
+                 print("🔴 Failed to decode incoming text: $e");
+             }
           } 
           else if (data.portnum == PortNum.NODEINFO_APP) {
              final user = User.fromBuffer(data.payload);
@@ -195,89 +200,104 @@ class HardwareBridge {
     } catch (e) {}
   }
 
+  // =========================================================================
+  // 🚀 REVERSE-ENGINEERED LORA TRANSMISSION LOGIC
+  // =========================================================================
   Future<void> sendTacticalMessage(String text, {bool isSquad = false}) async {
     if (_toRadioChar == null) return;
     try {
-      print("📤 SENDING [${isSquad ? "SQUAD" : "GLOBAL"}]: $text");
+      print("📤 TRANSMITTING [${isSquad ? "SQUAD" : "GLOBAL"}]: $text");
       
       final data = Data()
         ..portnum = PortNum.TEXT_MESSAGE_APP
         ..payload = utf8.encode(text);
       
-      final packetId = Random().nextInt(0x7FFFFFFF);
-      int channelIndex = isSquad ? 1 : 0;
-      
-      int localNodeNum = 0xFFFFFFFF;
-      if (NodeDatabase.instance.localNodeHexId.isNotEmpty) {
-         localNodeNum = int.parse(NodeDatabase.instance.localNodeHexId.replaceAll('!', ''), radix: 16);
-      }
-
+      // 🚨 SENIOR FIX: DO NOT SET `id` OR `from`! 
+      // If we fake these, the radio's anti-spoofing engine drops the packet.
+      // By leaving them blank, the hardware natively signs, sequences, and encrypts it!
       final packet = MeshPacket()
-        ..from = localNodeNum // 👉 FORCE HARDWARE ORIGIN
-        ..id = packetId
         ..decoded = data
-        ..to = 0xFFFFFFFF 
+        ..to = 0xFFFFFFFF // Broadcast to all radios
         ..wantAck = false 
-        ..channel = channelIndex;    
+        ..channel = isSquad ? 1 : 0; // Hardware routes to physical Channel 0 or 1
         
       final toRadio = ToRadio()..packet = packet;
       await _toRadioChar!.write(toRadio.writeToBuffer(), withoutResponse: false);
+      print("🟢 PACKET ACCEPTED BY HARDWARE SECURITY ENGINE.");
     } catch (e) {
-      print("🔴 ERROR SENDING: $e");
+      print("🔴 ERROR TRANSMITTING: $e");
     }
   }
 
+  // =========================================================================
+  // 🛡️ HARDWARE-FORCED AES-256 FLASH (Channel 1 Creation)
+  // =========================================================================
   Future<void> setGroupCode(String groupCode) async {
     if (_toRadioChar == null) {
       print("🔴 FAILED: Hardware bridge not linked.");
       return;
     }
     try {
-      print("🛡️ CONFIGURING SQUAD CHANNEL 1: $groupCode");
+      print("🛡️ INITIATING HARDWARE FLASH: CHANNEL 1 ($groupCode)");
       
+      // 1. Generate 32-byte AES-256 Key from the code
       List<int> aesKey = sha256.convert(utf8.encode(groupCode)).bytes;
 
+      // 2. Build the exact Channel Settings required by the firmware
+      // 👉 FIX: Removed modemConfig. Secondary channels inherit LoRa physical settings from Primary.
       ChannelSettings settings = ChannelSettings()
         ..name = groupCode
         ..psk = aesKey;
 
+      // 3. Define the Channel object for Index 1
       Channel squadChannel = Channel()
         ..index = 1 
         ..settings = settings
         ..role = Channel_Role.SECONDARY; 
 
+      // 4. Wrap it in the Admin Message (This tells the firmware "I am the owner")
       AdminMessage adminMsg = AdminMessage()..setChannel = squadChannel;
       
+      // 5. Wrap it in Data payload for the internal Admin Port
       Data adminData = Data()
         ..portnum = PortNum.ADMIN_APP
         ..payload = adminMsg.writeToBuffer();
 
+      // 6. Get the exact Node ID (Required for Admin commands to pass the firewall)
       int localNodeNum = 0xFFFFFFFF; 
       if (NodeDatabase.instance.localNodeHexId.isNotEmpty) {
          localNodeNum = int.parse(NodeDatabase.instance.localNodeHexId.replaceAll('!', ''), radix: 16);
       }
-      
+
+      // 7. Generate a unique ID so the hardware doesn't drop it as a duplicate
       int packetId = Random().nextInt(0x7FFFFFFF);
 
-      // 👉 THE MASTER FIX: Perfect Admin Packet Formatting
+      // 8. The Master Wrapper: Routed to self (localNodeNum) on internal Channel 0
       MeshPacket adminPacket = MeshPacket()
-        ..from = localNodeNum // Must be from self
-        ..to = localNodeNum   // Must be to self
-        ..id = packetId       // MUST HAVE ID OR RADIO DROPS IT
-        ..channel = 0         // Admin configs MUST traverse internal channel 0
+        ..to = localNodeNum
+        ..from = localNodeNum 
+        ..id = packetId
+        ..channel = 0 
         ..decoded = adminData
-        ..wantAck = true;
+        ..wantAck = true; // Request acknowledgment that the flash memory saved it
 
       ToRadio request = ToRadio()..packet = adminPacket;
 
-      print("📤 INJECTING ENCRYPTION KEY DEEP INTO FLASH MEMORY...");
+      print("📤 OVERWRITING HARDWARE CRYPTO CHIP ($localNodeNum)...");
       await _toRadioChar!.write(request.writeToBuffer(), withoutResponse: false);
       
-      // Wait for radio flash memory to cycle before confirming
-      await Future.delayed(const Duration(milliseconds: 800));
+      // 👉 NEW: Send a "Commit to Flash" command to force the radio to reboot/save
+      await Future.delayed(const Duration(milliseconds: 500));
+      AdminMessage commitMsg = AdminMessage()..commitEditSettings = true;
+      Data commitData = Data()..portnum = PortNum.ADMIN_APP..payload = commitMsg.writeToBuffer();
+      MeshPacket commitPacket = MeshPacket()..to = localNodeNum..from = localNodeNum..channel=0..id = Random().nextInt(0x7FFFFFFF)..decoded = commitData;
+      await _toRadioChar!.write((ToRadio()..packet = commitPacket).writeToBuffer(), withoutResponse: false);
+
+      // CRITICAL: Give hardware Non-Volatile Memory (Flash) time to rewrite and reboot
+      await Future.delayed(const Duration(milliseconds: 2000));
       
       currentSquad.value = groupCode;
-      print("🟢 SQUAD SECURE LINK ESTABLISHED!");
+      print("🟢 SQUAD ENCRYPTION LOCKED & LOADED!");
       
     } catch (e) {
       print("🔴 SQUAD SETUP ERROR: $e");
