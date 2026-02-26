@@ -305,4 +305,80 @@ class HardwareBridge {
       print("🔴 SQUAD SETUP ERROR: $e");
     }
   }
+  // =========================================================================
+  // 🛡️ PHASE 1: NATIVE HARDWARE PROVISIONING (OFFICIAL FLOW REPLICA)
+  // =========================================================================
+  Future<void> provisionTacticalChannel(String channelName, List<int> aesKey) async {
+    if (_toRadioChar == null) {
+      print("🔴 FAILED: Hardware bridge not linked.");
+      return;
+    }
+    try {
+      print("🛡️ PROVISIONING HARDWARE: CHANNEL 1 ($channelName)");
+      
+      // 1. Get Local Node Num to ensure the hardware knows the command is for itself
+      int localNodeNum = 0xFFFFFFFF; 
+      if (NodeDatabase.instance.localNodeHexId.isNotEmpty) {
+         localNodeNum = int.parse(NodeDatabase.instance.localNodeHexId.replaceAll('!', ''), radix: 16);
+      }
+
+      // 2. Build the Channel Settings
+      ChannelSettings settings = ChannelSettings()
+        ..name = channelName
+        ..psk = aesKey;
+
+      Channel squadChannel = Channel()
+        ..index = 1 
+        ..settings = settings
+        ..role = Channel_Role.SECONDARY; 
+
+      // 3. 🚨 THE FIX: Properly package the SetChannel command into an AdminMessage
+      AdminMessage adminMsg = AdminMessage()..setChannel = squadChannel;
+      Data adminData = Data()
+        ..portnum = PortNum.ADMIN_APP
+        ..payload = adminMsg.writeToBuffer();
+        
+      MeshPacket adminPacket = MeshPacket()
+        ..to = localNodeNum
+        ..from = localNodeNum 
+        ..id = Random().nextInt(0x7FFFFFFF)
+        ..channel = 0 
+        ..decoded = adminData
+        ..wantAck = true;
+
+      ToRadio channelReq = ToRadio()..packet = adminPacket;
+
+      print("📤 BURNING SECURE KEY TO LOCAL FLASH MEMORY...");
+      await _toRadioChar!.write(channelReq.writeToBuffer(), withoutResponse: false);
+      
+      // Give the hardware a moment to process the byte stream
+      await Future.delayed(const Duration(milliseconds: 1000));
+
+      // 4. 🚨 THE FIX: Properly package the Commit command into an AdminMessage
+      AdminMessage commitMsg = AdminMessage()..commitEditSettings = true;
+      Data commitData = Data()
+        ..portnum = PortNum.ADMIN_APP
+        ..payload = commitMsg.writeToBuffer();
+        
+      MeshPacket commitPacket = MeshPacket()
+        ..to = localNodeNum
+        ..from = localNodeNum 
+        ..id = Random().nextInt(0x7FFFFFFF)
+        ..channel = 0 
+        ..decoded = commitData
+        ..wantAck = true;
+
+      ToRadio commitReq = ToRadio()..packet = commitPacket;
+
+      print("📤 COMMITTING SETTINGS & REBOOTING RADIO...");
+      await _toRadioChar!.write(commitReq.writeToBuffer(), withoutResponse: false);
+
+      // 5. Update UI State
+      currentSquad.value = channelName;
+      print("🟢 SQUAD SECURE LINK INSTALLED SUCCESSFULLY!");
+      
+    } catch (e) {
+      print("🔴 SQUAD SETUP ERROR: $e");
+    }
+  }
 }

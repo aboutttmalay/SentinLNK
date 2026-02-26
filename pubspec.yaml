@@ -23,6 +23,8 @@ dependencies:
   protobuf: 4.2.0
   meshtastic_flutter: any
   shared_preferences: ^2.5.4
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.2.0
 
 dependency_overrides:
   flutter_blue_plus: ^2.1.1

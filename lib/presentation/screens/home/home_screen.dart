@@ -3,6 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'dart:convert';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../widgets/pulse_animation.dart';
@@ -408,7 +411,7 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 // ==========================================
-// 🛡️ SQUAD SETUP DIALOG UI
+// 🛡️ TACTICAL SQUAD PROVISIONING (QR SHARE & SCAN)
 // ==========================================
 class SquadSetupDialog extends StatefulWidget {
   const SquadSetupDialog({super.key});
@@ -419,118 +422,117 @@ class SquadSetupDialog extends StatefulWidget {
 
 class _SquadSetupDialogState extends State<SquadSetupDialog> {
   bool _isJoining = false;
-  String _generatedCode = "";
-  final TextEditingController _joinController = TextEditingController();
+  String _squadName = "ALPHA";
+  List<int> _aesKey = [];
+  String _qrDataString = "";
 
   @override
   void initState() {
     super.initState();
-    _generateCode();
+    _generateNewSecureKey();
   }
 
-  void _generateCode() {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    final rnd = math.Random();
-    String code = String.fromCharCodes(Iterable.generate(6, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))));
+  // Generates a True Random 32-Byte (256-bit) AES Key
+  void _generateNewSecureKey() {
+    final random = math.Random.secure();
+    _aesKey = List<int>.generate(32, (i) => random.nextInt(256));
+    
+    // Format: SENTINLNK:Name:Base64Key
+    String base64Key = base64Encode(_aesKey);
     setState(() {
-      _generatedCode = "${code.substring(0, 3)}-${code.substring(3, 6)}";
+      _qrDataString = "SENTINLNK:$_squadName:$base64Key";
     });
   }
 
-  void _applyCode(String code) {
-    if (code.trim().isEmpty) return;
-    String cleanCode = code.replaceAll("-", "").toUpperCase().trim();
-    
-    // Call the hardware bridge!
-    HardwareBridge.instance.setGroupCode(cleanCode);
-    
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("🟢 ENCRYPTING CHANNEL...\nCode: $cleanCode\nHardware will now reboot onto the private mesh."), 
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 4),
-      ),
-    );
+  // Decodes the QR string and flashes the hardware
+  void _processScannedQR(String qrCode) {
+    if (qrCode.startsWith("SENTINLNK:")) {
+      try {
+        final parts = qrCode.split(":");
+        if (parts.length == 3) {
+          String name = parts[1];
+          List<int> decodedKey = base64Decode(parts[2]);
+          
+          HardwareBridge.instance.provisionTacticalChannel(name, decodedKey);
+          
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("🟢 QR ACCEPTED: Flashing hardware for $name...\nRadio will reboot momentarily."), 
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        print("Invalid QR Format");
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: AppColors.bg,
+      contentPadding: const EdgeInsets.all(16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: AppColors.border)),
       title: Row(
         children: [
-          Icon(_isJoining ? LucideIcons.logIn : LucideIcons.shieldAlert, color: AppColors.primary),
+          Icon(_isJoining ? LucideIcons.scan : LucideIcons.qrCode, color: AppColors.primary),
           const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              _isJoining ? "JOIN SQUAD" : "CREATE SQUAD", 
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
+          Expanded(child: Text(_isJoining ? "SCAN SQUAD QR" : "SHARE SQUAD QR", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18))),
         ],
       ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            _isJoining 
-              ? "Enter the 6-character group code from your squad leader to sync encryption keys."
-              : "Share this highly secure code with your squad. Anyone with this code will instantly sync to your private AES-256 frequency.",
-            style: const TextStyle(color: AppColors.textDim, fontSize: 13, height: 1.4),
-          ),
-          const SizedBox(height: 24),
-          
-          if (!_isJoining) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-              decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.primary.withValues(alpha: 0.3))),
-              child: Center(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(_generatedCode, style: const TextStyle(color: AppColors.primary, fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: 4)),
-                ),
+      content: SizedBox(
+        width: 300,
+        height: 300,
+        child: _isJoining 
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: MobileScanner(
+                onDetect: (capture) {
+                  final List<Barcode> barcodes = capture.barcodes;
+                  for (final barcode in barcodes) {
+                    if (barcode.rawValue != null) {
+                      _processScannedQR(barcode.rawValue!);
+                      break; // Stop after first successful scan
+                    }
+                  }
+                },
               ),
-            ),
-            const SizedBox(height: 12),
-            TextButton.icon(
-              onPressed: _generateCode,
-              icon: const Icon(LucideIcons.refreshCw, color: AppColors.textDim, size: 16),
-              label: const Text("GENERATE NEW CODE", style: TextStyle(color: AppColors.textDim)),
             )
-          ] else ...[
-            TextField(
-              controller: _joinController,
-              textCapitalization: TextCapitalization.characters,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 4),
-              decoration: InputDecoration(
-                hintText: "XXX-XXX",
-                hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.1)),
-                filled: true,
-                fillColor: AppColors.surface,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.border)),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.primary)),
-              ),
+          : Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text("Scan this securely with another SentinLNK device.", textAlign: TextAlign.center, style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+                  child: QrImageView(
+                    data: _qrDataString,
+                    version: QrVersions.auto,
+                    size: 200.0,
+                    backgroundColor: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                  onPressed: () {
+                    HardwareBridge.instance.provisionTacticalChannel(_squadName, _aesKey);
+                    Navigator.pop(context);
+                  },
+                  icon: const Icon(LucideIcons.cpu, color: Colors.black, size: 16),
+                  label: const Text("FLASH LOCAL HARDWARE", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                )
+              ],
             ),
-          ]
-        ],
       ),
-      actionsPadding: const EdgeInsets.all(16),
-      actionsAlignment: MainAxisAlignment.spaceBetween,
+      actionsAlignment: MainAxisAlignment.center,
       actions: [
         TextButton(
-          onPressed: () => setState(() => _isJoining = !_isJoining),
-          child: Text(_isJoining ? "CREATE INSTEAD" : "JOIN EXISTING", style: const TextStyle(color: AppColors.textDim, fontSize: 11)),
-        ),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-          onPressed: () => _applyCode(_isJoining ? _joinController.text : _generatedCode),
-          child: const Text("SECURE LINK", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 12)),
+          onPressed: () => setState(() => _isJoining = !_isJoining), 
+          child: Text(_isJoining ? "SWITCH TO SHARE" : "SWITCH TO SCANNER", style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold))
         ),
       ],
     );
