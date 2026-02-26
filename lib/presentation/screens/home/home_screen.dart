@@ -324,109 +324,55 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            // Inside _HomeScreenState build method, replace the _currentTabIndex == 0 block:
+
             Expanded(
               child: _currentTabIndex == 0 
                 ? Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                "MESSAGES",
-                                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
-                                maxLines: 1, overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            if (widget.isConnected)
-                              GestureDetector(
-                                onTap: () => showDialog(context: context, builder: (context) => const SquadSetupDialog()),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary.withValues(alpha: 0.2),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: AppColors.primary.withValues(alpha: 0.5)),
-                                  ),
-                                  child: const Row(
-                                    mainAxisSize: MainAxisSize.min, 
-                                    children: [
-                                      Icon(LucideIcons.shieldCheck, color: AppColors.primary, size: 14),
-                                      SizedBox(width: 6),
-                                      Text("SQUAD SETUP", style: TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                          ],
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        child: Text(
+                          "COMMUNICATION CHANNELS",
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
                         ),
                       ),
                       
                       Expanded(
-                        child: ValueListenableBuilder<String>(
-                          valueListenable: HardwareBridge.instance.currentSquad,
-                          builder: (context, squadName, child) {
-                            
-                            List<Widget> chatTiles = [];
+                        child: ListView(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          children: [
+                            // 🌍 CHANNEL 0: GLOBAL MESH
+                            ChatTile(
+                              name: "Global Mesh",
+                              message: widget.isConnected ? "Public Channel 0 Active" : "Hardware disconnected...",
+                              time: "Live", 
+                              isUnread: false, 
+                              isConnected: widget.isConnected, 
+                              onTap: widget.isConnected ? () {
+                                Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveChatScreen(
+                                  chatName: "Global Mesh",
+                                  onBack: () => Navigator.pop(context),
+                                )));
+                              } : () {},
+                            ),
 
-                            // 1. ALWAYS SHOW GLOBAL MESH
-                            chatTiles.add(
-                              ChatTile(
-                                name: "Global Mesh",
-                                message: widget.isConnected 
-                                  ? (squadName == "Global Mesh" ? "Public frequency open." : "Active on background channel.") 
-                                  : "Hardware disconnected...",
-                                time: "Active", 
-                                isUnread: squadName == "Global Mesh", 
-                                isConnected: widget.isConnected, 
-                                onTap: widget.isConnected ? () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => ActiveChatScreen(
-                                        chatName: "Global Mesh",
-                                        onBack: () => Navigator.pop(context),
-                                      ),
-                                    ),
-                                  );
-                                } : () {},
-                              )
-                            );
-
-                            // 2. SHOW SECURE SQUAD MESH
-                            if (squadName != "Global Mesh") {
-                              String squadTitle = "Squad: $squadName";
-                              chatTiles.add(
-                                ChatTile(
-                                  name: squadTitle,
-                                  message: widget.isConnected ? "Secure AES-256 channel active." : "Hardware disconnected...",
-                                  time: "Now", 
-                                  isUnread: true, 
-                                  isConnected: widget.isConnected, 
-                                  onTap: widget.isConnected ? () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => ActiveChatScreen(
-                                          chatName: squadTitle,
-                                          onBack: () => Navigator.pop(context),
-                                        ),
-                                      ),
-                                    );
-                                  } : () {},
-                                )
-                              );
-                            }
-
-                            return ListView(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              children: chatTiles,
-                            );
-                          },
+                            // 🛡️ CHANNEL 1: SECURE SQUAD
+                            ChatTile(
+                              name: "Secure Squad",
+                              message: widget.isConnected ? "AES-256 Encrypted (Channel 1)" : "Hardware disconnected...",
+                              time: "Live", 
+                              isUnread: true, 
+                              isConnected: widget.isConnected, 
+                              onTap: widget.isConnected ? () {
+                                Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveChatScreen(
+                                  chatName: "Secure Squad", // ActiveChatScreen checks if this is != "Global Mesh"
+                                  onBack: () => Navigator.pop(context),
+                                )));
+                              } : () {},
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -435,6 +381,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? const NodesScreen() 
                     : SettingsTab(isConnected: widget.isConnected), 
             ),
+
+// 🚨 IMPORTANT: Scroll to the very bottom of home_screen.dart 
+// and DELETE the entire "class SquadSetupDialog extends StatefulWidget" block!
           ],
         ),
       ),

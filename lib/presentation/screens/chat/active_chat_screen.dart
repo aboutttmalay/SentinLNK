@@ -48,8 +48,8 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
 
   Future<void> _loadMessages() async {
     // 👉 FIX: Check mode and load ONLY that specific history
-    bool isSquadMode = HardwareBridge.instance.currentSquad.value != "Global Mesh";
-    final messages = StorageService.getHistory(isSquad: isSquadMode);
+    bool isSquadMode = widget.chatName != "Global Mesh";
+    final messages = StorageService.getHistory(isSquad: isSquadMode); 
     
     setState(() {
       _messages.addAll(messages);

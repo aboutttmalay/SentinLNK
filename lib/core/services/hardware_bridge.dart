@@ -201,33 +201,35 @@ class HardwareBridge {
   }
 
   // =========================================================================
-  // 🚀 REVERSE-ENGINEERED LORA TRANSMISSION LOGIC
+  // 🚀 HARDWARE-DELEGATED LORA TRANSMISSION
   // =========================================================================
   Future<void> sendTacticalMessage(String text, {bool isSquad = false}) async {
     if (_toRadioChar == null) return;
     try {
-      print("📤 TRANSMITTING [${isSquad ? "SQUAD" : "GLOBAL"}]: $text");
+      print("📤 TRANSMITTING [${isSquad ? "SQUAD (Ch1)" : "GLOBAL (Ch0)"}]: $text");
       
       final data = Data()
         ..portnum = PortNum.TEXT_MESSAGE_APP
         ..payload = utf8.encode(text);
       
-      // 🚨 SENIOR FIX: DO NOT SET `id` OR `from`! 
-      // If we fake these, the radio's anti-spoofing engine drops the packet.
-      // By leaving them blank, the hardware natively signs, sequences, and encrypts it!
+      // 👉 THE MASTER FIX: Let the hardware handle the crypto!
+      // If Squad, route to Channel 1. If Global, route to Channel 0.
       final packet = MeshPacket()
         ..decoded = data
-        ..to = 0xFFFFFFFF // Broadcast to all radios
+        ..to = 0xFFFFFFFF // Broadcast
         ..wantAck = false 
-        ..channel = isSquad ? 1 : 0; // Hardware routes to physical Channel 0 or 1
+        ..channel = isSquad ? 1 : 0; 
         
       final toRadio = ToRadio()..packet = packet;
       await _toRadioChar!.write(toRadio.writeToBuffer(), withoutResponse: false);
-      print("🟢 PACKET ACCEPTED BY HARDWARE SECURITY ENGINE.");
+      print("🟢 PACKET HANDED TO HARDWARE LORA MODEM.");
     } catch (e) {
       print("🔴 ERROR TRANSMITTING: $e");
     }
   }
+
+  // NOTE: setGroupCode() and Squad Setup logic has been entirely removed.
+  // Hardware encryption keys are now managed securely by the Official App.
 
   // =========================================================================
   // 🛡️ HARDWARE-FORCED AES-256 FLASH (Channel 1 Creation)
