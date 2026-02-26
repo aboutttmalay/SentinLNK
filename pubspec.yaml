@@ -22,6 +22,7 @@ dependencies:
   permission_handler: ^12.0.1
   protobuf: 4.2.0
   meshtastic_flutter: any
+  shared_preferences: ^2.5.4
 
 dependency_overrides:
   flutter_blue_plus: ^2.1.1

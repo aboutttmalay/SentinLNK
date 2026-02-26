@@ -5,8 +5,7 @@ import '../../../core/storage/storage_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../data/models/chat_message.dart';
 import '../../../data/models/node_database.dart'; 
-import '../../../core/services/hardware_bridge.dart'; // 👉 NEW: Global Engine
-
+import '../../../core/services/hardware_bridge.dart'; 
 
 class ActiveChatScreen extends StatefulWidget {
   final VoidCallback onBack;
@@ -33,12 +32,11 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
     super.initState();
     _loadMessages();
     
-    // 👉 1. CONNECT HARDWARE (If it isn't already)
-    // This allows the user to open Chat before Nodes and still connect
-    HardwareBridge.instance.connectAndSync(); 
+    // 👉 REMOVED: connectAndSync() call here.
+    // It is no longer needed here because connection is now strictly handled
+    // by the ScanScreen when a user explicitly selects a device. 
     
-    // 👉 2. LISTEN FOR BACKGROUND MESSAGES
-    // The Global Engine will update this notifier when a new text arrives
+    // Listen for background messages
     NodeDatabase.instance.latestIncomingMessage.addListener(_onNewRadioMessage);
   }
 
@@ -49,7 +47,10 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
   }
 
   Future<void> _loadMessages() async {
-    final messages = StorageService.getHistory();
+    // 👉 FIX: Check mode and load ONLY that specific history
+    bool isSquadMode = HardwareBridge.instance.currentSquad.value != "Global Mesh";
+    final messages = StorageService.getHistory(isSquad: isSquadMode);
+    
     setState(() {
       _messages.addAll(messages);
       _isLoading = false;
@@ -58,46 +59,53 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
   }
 
   // ==========================================
-  // 📥 HANDLE INCOMING MESSAGES
+  // 📥 HANDLE INCOMING MESSAGES (MULTI-CHANNEL)
   // ==========================================
   void _onNewRadioMessage() {
-    final payload = NodeDatabase.instance.latestIncomingMessage.value;
-    if (payload != null && payload.isNotEmpty) {
+    final rawMsg = NodeDatabase.instance.latestIncomingMessage.value;
+    if (rawMsg != null) {
+      final parts = rawMsg.split('|');
       
-      // 👉 Clean the hidden timestamp off the message
-      final text = payload.split('|')[0]; 
-      final timestamp = "${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}";
-      
-      if (mounted) {
-        setState(() {
-          _messages.add(ChatMessage(text: text, isMe: false, timestamp: timestamp));
-        });
-        _scrollToBottom();
+      // Expected Format: "SQUAD|Hello|16281923" or "GLOBAL|Hello|16281923"
+      if (parts.length >= 3) {
+        String msgType = parts[0];
+        String msgText = parts[1];
+
+        // CHECK: Are we currently in Squad Mode?
+        bool isSquadMode = HardwareBridge.instance.currentSquad.value != "Global Mesh";
+
+        // FILTER: 
+        // Only show SQUAD messages if we are in Squad mode.
+        // Only show GLOBAL messages if we are in Global mode.
+        if ((isSquadMode && msgType == "SQUAD") || (!isSquadMode && msgType == "GLOBAL")) {
+           setState(() {
+             _messages.add(ChatMessage(text: msgText, isMe: false, timestamp: "Now"));
+           });
+           _scrollToBottom();
+        }
       }
-      
-      // Note: HardwareBridge already saved this to StorageService in the background!
     }
   }
+
   // ==========================================
-  // 📤 SEND MESSAGE (Via Global Engine)
+  // 📤 SEND MESSAGE (MULTI-CHANNEL)
   // ==========================================
   Future<void> _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
 
     final timestamp = "${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}";
+    bool isSquadMode = HardwareBridge.instance.currentSquad.value != "Global Mesh";
     
-    // 1. Save to Local Memory
-    await StorageService.saveMessage(text.trim(), true, timestamp);
+    // 👉 FIX: Save to the correct database box
+    await StorageService.saveMessage(text.trim(), true, timestamp, isSquad: isSquadMode);
 
-    // 2. Update UI
     setState(() {
       _messages.add(ChatMessage(text: text.trim(), isMe: true, timestamp: timestamp));
       _messageController.clear();
     });
     _scrollToBottom();
 
-    // 👉 3. FIRE THE MESSAGE VIA GLOBAL ENGINE
-    await HardwareBridge.instance.sendTacticalMessage(text.trim());
+    await HardwareBridge.instance.sendTacticalMessage(text.trim(), isSquad: isSquadMode);
   }
 
   void _scrollToBottom() {
@@ -131,8 +139,7 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white, letterSpacing: 1),
             ),
             Text(
-              // Ask the Global Engine if we are online!
-              HardwareBridge.instance.isConnected ? "🟢 SECURE LORA LINK ACTIVE" : "🔴 SCANNING FREQUENCIES...",
+              HardwareBridge.instance.isConnected ? "🟢 SECURE LORA LINK ACTIVE" : "🔴 OFFLINE",
               style: TextStyle(
                 color: HardwareBridge.instance.isConnected ? AppColors.primary : Colors.orangeAccent, 
                 fontSize: 10, 

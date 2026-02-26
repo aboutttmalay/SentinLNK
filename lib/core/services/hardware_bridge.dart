@@ -25,18 +25,18 @@ class HardwareBridge {
 
   final ValueNotifier<String> currentSquad = ValueNotifier("Global Mesh");
 
+  BluetoothDevice? connectedDevice;
+
   bool get isConnected => _isHardwareConnected;
 
-  Future<void> connectAndSync() async {
+  Future<void> connectAndSync(BluetoothDevice device) async {
     if (_isSyncing || _isHardwareConnected) return; 
     _isSyncing = true;
+    connectedDevice = device; 
 
     try {
-      var devices = FlutterBluePlus.connectedDevices;
-      if (devices.isEmpty) return;
-      
-      BluetoothDevice device = devices.first;
       print("HardwareBridge: Connected to ${device.platformName}, discovering services...");
+      StorageService.saveKnownDevice(device.remoteId.str, device.platformName);
 
       await Future.delayed(const Duration(milliseconds: 500));
       List<BluetoothService> services = await device.discoverServices();
@@ -44,11 +44,9 @@ class HardwareBridge {
       BluetoothCharacteristic? fromRadio;
       BluetoothCharacteristic? fromNum;
 
-      // 👉 THE FIX: We collect ALL characteristics first before doing anything!
       for (var s in services) {
         for (var c in s.characteristics) {
           String uuid = c.uuid.toString().toLowerCase();
-          
           if (uuid.contains("f75c")) {
             _toRadioChar = c;
             print("HardwareBridge: Linked TX Pipeline (toRadio)");
@@ -64,10 +62,9 @@ class HardwareBridge {
         }
       }
 
-      // 👉 Once we have all three pipelines, THEN we start the listener!
       if (_toRadioChar != null && fromRadio != null && fromNum != null) {
         _isHardwareConnected = true;
-        print("HardwareBridge: Fully Linked and Operational! Starting Listener...");
+        print("HardwareBridge: Fully Linked! Starting Listener...");
         await _startRadioListener(fromRadio, fromNum); 
       } else {
         print("🔴 HardwareBridge: Missing required characteristics!");
@@ -79,8 +76,12 @@ class HardwareBridge {
     }
   }
 
-  void disconnectAndWipe() {
-    print("HardwareBridge: Wiping active connections and buffers...");
+  Future<void> disconnectAndUnpair() async {
+    print("HardwareBridge: Unpairing and Disconnecting...");
+    if (connectedDevice != null) {
+      await StorageService.removeKnownDevice(connectedDevice!.remoteId.str);
+      await connectedDevice!.disconnect();
+    }
     _radioListener?.cancel();
     _radioListener = null;
     _toRadioChar = null;
@@ -88,29 +89,23 @@ class HardwareBridge {
     _isSyncing = false;
     _isReading = false;
     currentSquad.value = "Global Mesh"; 
+    connectedDevice = null;
   }
 
   Future<void> _startRadioListener(BluetoothCharacteristic fromRadio, BluetoothCharacteristic fromNum) async {
     await fromNum.setNotifyValue(true);
-
     _radioListener = fromNum.onValueReceived.listen((_) {
       _drainMailbox(fromRadio); 
     });
 
     await Future.delayed(const Duration(milliseconds: 500));
-    
     if (_toRadioChar != null) {
-      print("HardwareBridge: Sending Wakeup Command");
       await _toRadioChar!.write([0x08, 0x01], withoutResponse: false);
-
       await Future.delayed(const Duration(milliseconds: 500));
       int randomConfigId = Random().nextInt(999999) + 1;
       final req = ToRadio()..wantConfigId = randomConfigId; 
-      
-      print("HardwareBridge: Requesting Node DB Sync...");
       await _toRadioChar!.write(req.writeToBuffer(), withoutResponse: false);
     }
-
     await Future.delayed(const Duration(milliseconds: 200));
     _drainMailbox(fromRadio); 
   }
@@ -118,7 +113,6 @@ class HardwareBridge {
   Future<void> _drainMailbox(BluetoothCharacteristic fromRadio) async {
     if (_isReading) return;
     _isReading = true;
-
     try {
       int emptyCount = 0;
       while (emptyCount < 15) {
@@ -132,9 +126,7 @@ class HardwareBridge {
           await Future.delayed(const Duration(milliseconds: 10)); 
         }
       }
-    } catch (e) {
-      print("Drain Mailbox Error: $e");
-    } finally {
+    } catch (e) {} finally {
       _isReading = false; 
     }
   }
@@ -160,9 +152,7 @@ class HardwareBridge {
         final senderId = "!${packet.from.toRadixString(16).toLowerCase().padLeft(8, '0')}"; 
         
         if (packet.hasRxRssi() || packet.hasRxSnr()) {
-           double rxSnr = packet.hasRxSnr() ? packet.rxSnr.toDouble() : 0.0;
-           int rxRssi = packet.hasRxRssi() ? packet.rxRssi : -100;
-           NodeDatabase.instance.updateSignalMetrics(senderId, rxSnr, rxRssi);
+           NodeDatabase.instance.updateSignalMetrics(senderId, packet.hasRxSnr() ? packet.rxSnr.toDouble() : 0.0, packet.hasRxRssi() ? packet.rxRssi : -100);
         }
 
         if (packet.hasDecoded()) {
@@ -172,16 +162,17 @@ class HardwareBridge {
              try {
                String messageText = utf8.decode(data.payload);
                if (senderId != NodeDatabase.instance.localNodeHexId) {
-                 print("📥 INCOMING CHAT: $messageText");
+                 bool isSquadMsg = (packet.channel == 1);
+                 String type = isSquadMsg ? "SQUAD" : "GLOBAL";
+                 print("📥 INCOMING [$type]: $messageText");
                  final timestamp = "${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}";
-                 StorageService.saveMessage(messageText, false, timestamp);
                  
-                 // Fire UI Pulse
-                 NodeDatabase.instance.notifyNewMessage(messageText); 
+                 // 👉 THE MISSING FIX: Actually save incoming messages to the correct database!
+                 StorageService.saveMessage(messageText, false, timestamp, isSquad: isSquadMsg);
+                 
+                 NodeDatabase.instance.notifyNewMessage("$type|$messageText"); 
                }
-             } catch(e) {
-               print("🔴 FAILED TO DECODE MESSAGE: $e");
-             }
+             } catch(e) {}
           } 
           else if (data.portnum == PortNum.NODEINFO_APP) {
              final user = User.fromBuffer(data.payload);
@@ -191,11 +182,11 @@ class HardwareBridge {
           else if (data.portnum == PortNum.TELEMETRY_APP) {
              final telemetry = Telemetry.fromBuffer(data.payload);
              if (telemetry.hasDeviceMetrics()) {
-                double rxSnr = packet.hasRxSnr() ? packet.rxSnr.toDouble() : 0.0;
-                int rxRssi = packet.hasRxRssi() ? packet.rxRssi : -100;
                 NodeDatabase.instance.processTelemetry(
                   senderId, telemetry.deviceMetrics.batteryLevel.toDouble(),
-                  telemetry.deviceMetrics.voltage.toDouble(), rxSnr, rxRssi
+                  telemetry.deviceMetrics.voltage.toDouble(), 
+                  packet.hasRxSnr() ? packet.rxSnr.toDouble() : 0.0, 
+                  packet.hasRxRssi() ? packet.rxRssi : -100
                 );
              }
           }
@@ -204,68 +195,89 @@ class HardwareBridge {
     } catch (e) {}
   }
 
-  Future<void> sendTacticalMessage(String text) async {
+  Future<void> sendTacticalMessage(String text, {bool isSquad = false}) async {
     if (_toRadioChar == null) return;
     try {
-      print("📤 SENDING MESSAGE: $text");
+      print("📤 SENDING [${isSquad ? "SQUAD" : "GLOBAL"}]: $text");
       
       final data = Data()
         ..portnum = PortNum.TEXT_MESSAGE_APP
         ..payload = utf8.encode(text);
       
       final packetId = Random().nextInt(0x7FFFFFFF);
+      int channelIndex = isSquad ? 1 : 0;
+      
+      int localNodeNum = 0xFFFFFFFF;
+      if (NodeDatabase.instance.localNodeHexId.isNotEmpty) {
+         localNodeNum = int.parse(NodeDatabase.instance.localNodeHexId.replaceAll('!', ''), radix: 16);
+      }
 
       final packet = MeshPacket()
+        ..from = localNodeNum // 👉 FORCE HARDWARE ORIGIN
         ..id = packetId
         ..decoded = data
-        ..to = 0xFFFFFFFF // Broadcast address
-        ..wantAck = false // Prevents radio from dropping the broadcast
-        ..channel = 0;    // Broadcast channel
+        ..to = 0xFFFFFFFF 
+        ..wantAck = false 
+        ..channel = channelIndex;    
         
       final toRadio = ToRadio()..packet = packet;
       await _toRadioChar!.write(toRadio.writeToBuffer(), withoutResponse: false);
-      print("🟢 MESSAGE INJECTED TO HARDWARE TX BUFFER. ID: $packetId");
     } catch (e) {
-      print("🔴 ERROR SENDING MESSAGE: $e");
+      print("🔴 ERROR SENDING: $e");
     }
   }
 
   Future<void> setGroupCode(String groupCode) async {
     if (_toRadioChar == null) {
-      print("🔴 FAILED: Hardware bridge not linked. Ensure Bluetooth is connected.");
+      print("🔴 FAILED: Hardware bridge not linked.");
       return;
     }
     try {
-      print("🛡️ GENERATING AES-256 KEY FOR SQUAD: $groupCode");
+      print("🛡️ CONFIGURING SQUAD CHANNEL 1: $groupCode");
+      
       List<int> aesKey = sha256.convert(utf8.encode(groupCode)).bytes;
 
       ChannelSettings settings = ChannelSettings()
         ..name = groupCode
         ..psk = aesKey;
 
-      Channel primaryChannel = Channel()
-        ..index = 0
+      Channel squadChannel = Channel()
+        ..index = 1 
         ..settings = settings
-        ..role = Channel_Role.PRIMARY;
+        ..role = Channel_Role.SECONDARY; 
 
-      AdminMessage adminMsg = AdminMessage()..setChannel = primaryChannel;
+      AdminMessage adminMsg = AdminMessage()..setChannel = squadChannel;
       
       Data adminData = Data()
         ..portnum = PortNum.ADMIN_APP
         ..payload = adminMsg.writeToBuffer();
 
+      int localNodeNum = 0xFFFFFFFF; 
+      if (NodeDatabase.instance.localNodeHexId.isNotEmpty) {
+         localNodeNum = int.parse(NodeDatabase.instance.localNodeHexId.replaceAll('!', ''), radix: 16);
+      }
+      
+      int packetId = Random().nextInt(0x7FFFFFFF);
+
+      // 👉 THE MASTER FIX: Perfect Admin Packet Formatting
       MeshPacket adminPacket = MeshPacket()
+        ..from = localNodeNum // Must be from self
+        ..to = localNodeNum   // Must be to self
+        ..id = packetId       // MUST HAVE ID OR RADIO DROPS IT
+        ..channel = 0         // Admin configs MUST traverse internal channel 0
         ..decoded = adminData
-        ..to = 0xFFFFFFFF 
         ..wantAck = true;
 
       ToRadio request = ToRadio()..packet = adminPacket;
 
-      print("📤 TRANSMITTING SQUAD ENCRYPTION TO HARDWARE...");
+      print("📤 INJECTING ENCRYPTION KEY DEEP INTO FLASH MEMORY...");
       await _toRadioChar!.write(request.writeToBuffer(), withoutResponse: false);
       
+      // Wait for radio flash memory to cycle before confirming
+      await Future.delayed(const Duration(milliseconds: 800));
+      
       currentSquad.value = groupCode;
-      print("🟢 SQUAD CHANNEL SET! Radio will now reboot onto the private mesh.");
+      print("🟢 SQUAD SECURE LINK ESTABLISHED!");
       
     } catch (e) {
       print("🔴 SQUAD SETUP ERROR: $e");

@@ -19,7 +19,8 @@ class _NodesScreenState extends State<NodesScreen> {
   void initState() {
     super.initState();
     print("📌 NodesScreen initState");
-    HardwareBridge.instance.connectAndSync();
+    // 👉 REMOVED: connectAndSync()
+    // The ScanScreen now handles all connections. This screen just reads the data!
   }
 
   String _getSignalQualityText(int? rssi) {
@@ -35,7 +36,18 @@ class _NodesScreenState extends State<NodesScreen> {
     return ValueListenableBuilder<Map<String, TacticalNode>>(
       valueListenable: NodeDatabase.instance.radarMap,
       builder: (context, nodesMap, child) {
-        final nodes = nodesMap.values.toList();
+        
+        // 👉 THE FIX: Filter out "Ghost" Nodes
+        // Only show nodes that are Local, OR have been heard in the last 24 hours.
+        // It ignores nodes with 0 timestamp (default empty flash memory nodes).
+        final currentTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        final nodes = nodesMap.values.where((node) {
+          if (node.isLocal) return true;
+          if (node.lastHeardUnix == 0) return false; // Hide dead memory ghosts
+          
+          final secondsSinceHeard = currentTime - node.lastHeardUnix;
+          return secondsSinceHeard < 86400; // Only show if active within 24 hours
+        }).toList();
 
         nodes.sort((a, b) {
           if (a.isLocal && !b.isLocal) return -1;
@@ -43,7 +55,6 @@ class _NodesScreenState extends State<NodesScreen> {
           return a.longName.compareTo(b.longName);
         });
 
-        // We use a Container instead of a Scaffold so it seamlessly blends into your HomeScreen
         return Container(
           color: AppColors.bg,
           child: Column(
@@ -97,7 +108,11 @@ class _NodesScreenState extends State<NodesScreen> {
                         ),
                       )
                     : RefreshIndicator(
-                        onRefresh: () async { await HardwareBridge.instance.connectAndSync(); },
+                        // 👉 FIXED: Since the background drainer loops constantly, 
+                        // pull-to-refresh just needs a visual delay to let UI catch up.
+                        onRefresh: () async { 
+                          await Future.delayed(const Duration(seconds: 1)); 
+                        },
                         color: AppColors.primary,
                         backgroundColor: AppColors.surface,
                         child: ListView.builder(

@@ -44,7 +44,7 @@ class TacticalNode {
     return TacticalNode(
       shortName: shortName ?? this.shortName,
       longName: longName ?? this.longName,
-      hexId: this.hexId, // Hex ID never changes, so it doesn't need to be passed
+      hexId: hexId, // Hex ID never changes, so it doesn't need to be passed
       hardware: hardware ?? this.hardware,
       role: role ?? this.role,
       batteryLevel: batteryLevel ?? this.batteryLevel,

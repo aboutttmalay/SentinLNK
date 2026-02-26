@@ -13,7 +13,7 @@ import '../nodes/nodes_screen.dart';
 import '../../../core/storage/storage_service.dart'; 
 import '../../../core/services/hardware_bridge.dart'; 
 import '../../../data/models/node_database.dart';
-import '../chat/active_chat_screen.dart'; // 👉 Added right here!
+import '../chat/active_chat_screen.dart'; 
 
 class HomeScreen extends StatefulWidget {
   final bool isConnected;
@@ -37,9 +37,61 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // 👉 WAKE UP THE BRIDGE IMMEDIATELY WHEN HOME SCREEN OPENS
-    if (widget.isConnected) {
-      HardwareBridge.instance.connectAndSync();
+    
+    // 👉 FIX 1: Removed connectAndSync() here because ScanScreen now handles it completely!
+    
+    // 👉 FEATURE 3: GLOBAL MESSAGE LISTENER
+    NodeDatabase.instance.latestIncomingMessage.addListener(_onGlobalMessageReceived);
+  }
+
+  @override
+  void dispose() {
+    NodeDatabase.instance.latestIncomingMessage.removeListener(_onGlobalMessageReceived);
+    super.dispose();
+  }
+
+  // ==========================================
+  // 💬 GLOBAL MESSAGE POP-UP ALERT
+  // ==========================================
+  void _onGlobalMessageReceived() {
+    final rawMsg = NodeDatabase.instance.latestIncomingMessage.value;
+    if (rawMsg != null) {
+      final parts = rawMsg.split('|');
+      if (parts.length >= 2) {
+        String type = parts[0];
+        String text = parts[1];
+        
+        // CHECK: Are we currently looking at the Chat Screen?
+        // If 'isCurrent' is true, it means we are on the Home Screen (Nodes/Settings/Menu)
+        // and NOT inside the ActiveChatScreen. So we show the popup!
+        if (ModalRoute.of(context)?.isCurrent == true) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.only(bottom: 80, left: 16, right: 16), // Floats above the bottom nav bar
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              content: Row(
+                children: [
+                  Icon(type == "SQUAD" ? LucideIcons.shieldCheck : LucideIcons.messageSquare, color: Colors.white, size: 20),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text("NEW ${type == 'SQUAD' ? 'ENCRYPTED' : 'GLOBAL'} MESSAGE", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white70)),
+                        Text(text, style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: type == "SQUAD" ? Colors.green[800] : AppColors.primary,
+              duration: const Duration(seconds: 4),
+            )
+          );
+        }
+      }
     }
   }
 
@@ -169,28 +221,21 @@ class _HomeScreenState extends State<HomeScreen> {
       message: "This will permanently sever the link, wipe security keys, and DELETE ALL CHAT HISTORY. This cannot be undone.",
       onConfirm: () async {
         
-        // 👉 1. Wipe Hard Storage Logs
+        // 1. Wipe Hard Storage Logs
         await StorageService.clearLogs();
         
-        // 👉 2. INSTANTLY WIPE ALL IN-MEMORY BUFFERS (Nodes, Chat, Squad, Pipeline)
+        // 2. INSTANTLY WIPE ALL IN-MEMORY BUFFERS (Nodes, Chat, Squad, Pipeline)
         NodeDatabase.instance.clearDatabase();
-        HardwareBridge.instance.disconnectAndWipe();
+        
+        // 3. Unpair and disconnect the hardware
+        await HardwareBridge.instance.disconnectAndUnpair();
         
         print("🗑️ TACTICAL LOGS & BUFFERS WIPED.");
-
-        // 👉 3. Sever Bluetooth
-        var devices = FlutterBluePlus.connectedDevices;
-        if (devices.isNotEmpty) {
-          BluetoothDevice device = devices.first;
-          await device.disconnect();
-          if (Platform.isAndroid) {
-            try { await device.removeBond(); await device.clearGattCache(); } catch (e) {}
-          }
-        }
         
-        ScanScreen.lastKnownNode = null; 
+        // 👉 FIXED: Removed the outdated ScanScreen.lastKnownNode = null; 
+        // Our new StorageService handles all of this automatically now!
         
-        // 👉 4. Return to Scan Screen
+        // 4. Return to Scan Screen
         if (widget.onDisconnect != null) widget.onDisconnect!();
       },
     );
@@ -321,7 +366,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       
-                      // 👉 ISOLATED LISTENER: Renders Global Mesh, and adds Squad Mesh below it!
                       Expanded(
                         child: ValueListenableBuilder<String>(
                           valueListenable: HardwareBridge.instance.currentSquad,
@@ -340,7 +384,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 isUnread: squadName == "Global Mesh", 
                                 isConnected: widget.isConnected, 
                                 onTap: widget.isConnected ? () {
-                                  // 👉 FIX: Route directly to Global Mesh!
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
@@ -354,7 +397,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               )
                             );
 
-                            // 2. SHOW SECURE SQUAD MESH (Appears below Global Mesh when created/joined)
+                            // 2. SHOW SECURE SQUAD MESH
                             if (squadName != "Global Mesh") {
                               String squadTitle = "Squad: $squadName";
                               chatTiles.add(
@@ -365,7 +408,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                   isUnread: true, 
                                   isConnected: widget.isConnected, 
                                   onTap: widget.isConnected ? () {
-                                    // 👉 FIX: Route directly to the Squad!
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
