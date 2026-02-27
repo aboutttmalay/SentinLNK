@@ -6,10 +6,10 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'dart:convert';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:meshtastic_flutter/generated/channel.pb.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../widgets/pulse_animation.dart';
-import '../scanning/scan_screen.dart';
 import 'widgets/chat_tile.dart';
 import '../settings/settings_tab.dart';
 import '../nodes/nodes_screen.dart';
@@ -40,10 +40,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    
-    // 👉 FIX 1: Removed connectAndSync() here because ScanScreen now handles it completely!
-    
-    // 👉 FEATURE 3: GLOBAL MESSAGE LISTENER
     NodeDatabase.instance.latestIncomingMessage.addListener(_onGlobalMessageReceived);
   }
 
@@ -53,9 +49,6 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // ==========================================
-  // 💬 GLOBAL MESSAGE POP-UP ALERT
-  // ==========================================
   void _onGlobalMessageReceived() {
     final rawMsg = NodeDatabase.instance.latestIncomingMessage.value;
     if (rawMsg != null) {
@@ -64,14 +57,11 @@ class _HomeScreenState extends State<HomeScreen> {
         String type = parts[0];
         String text = parts[1];
         
-        // CHECK: Are we currently looking at the Chat Screen?
-        // If 'isCurrent' is true, it means we are on the Home Screen (Nodes/Settings/Menu)
-        // and NOT inside the ActiveChatScreen. So we show the popup!
         if (ModalRoute.of(context)?.isCurrent == true) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.only(bottom: 80, left: 16, right: 16), // Floats above the bottom nav bar
+              margin: const EdgeInsets.only(bottom: 80, left: 16, right: 16),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               content: Row(
                 children: [
@@ -98,30 +88,15 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _buildOptionButton({
-    required IconData icon,
-    required String label,
-    required String subtitle,
-    required VoidCallback onTap,
-    Color color = const Color(0xFF22C55E),
-  }) {
+  Widget _buildOptionButton({required IconData icon, required String label, required String subtitle, required VoidCallback onTap, Color color = const Color(0xFF22C55E)}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.bg,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.border),
-        ),
+        decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(10), border: Border.all(color: AppColors.border)),
         child: Row(
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(color: color.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
-              child: Icon(icon, color: color, size: 22),
-            ),
+            Container(width: 44, height: 44, decoration: BoxDecoration(color: color.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)), child: Icon(icon, color: color, size: 22)),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -133,7 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-            Icon(LucideIcons.chevronRight, color: AppColors.textDim, size: 20),
+            const Icon(LucideIcons.chevronRight, color: AppColors.textDim, size: 20),
           ],
         ),
       ),
@@ -223,22 +198,9 @@ class _HomeScreenState extends State<HomeScreen> {
       title: "Forget Device?",
       message: "This will permanently sever the link, wipe security keys, and DELETE ALL CHAT HISTORY. This cannot be undone.",
       onConfirm: () async {
-        
-        // 1. Wipe Hard Storage Logs
         await StorageService.clearLogs();
-        
-        // 2. INSTANTLY WIPE ALL IN-MEMORY BUFFERS (Nodes, Chat, Squad, Pipeline)
         NodeDatabase.instance.clearDatabase();
-        
-        // 3. Unpair and disconnect the hardware
         await HardwareBridge.instance.disconnectAndUnpair();
-        
-        print("🗑️ TACTICAL LOGS & BUFFERS WIPED.");
-        
-        // 👉 FIXED: Removed the outdated ScanScreen.lastKnownNode = null; 
-        // Our new StorageService handles all of this automatically now!
-        
-        // 4. Return to Scan Screen
         if (widget.onDisconnect != null) widget.onDisconnect!();
       },
     );
@@ -297,9 +259,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildBlinkingHardwareLogo() {
+  Widget _buildBlinkingHardwareLogo(bool isHardwareConnected) {
     return GestureDetector(
-      onTap: widget.isConnected ? _showHardwareMenu : widget.onAction,
+      onTap: isHardwareConnected ? _showHardwareMenu : widget.onAction,
       child: Container(
         color: Colors.transparent, width: 70, 
         child: Column(
@@ -308,12 +270,12 @@ class _HomeScreenState extends State<HomeScreen> {
             PulseAnimation(
               child: Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: (widget.isConnected ? AppColors.primary : Colors.orange).withValues(alpha: 0.2), shape: BoxShape.circle),
-                child: Icon(widget.isConnected ? LucideIcons.cpu : LucideIcons.scanLine, color: widget.isConnected ? AppColors.primary : Colors.orange, size: 20),
+                decoration: BoxDecoration(color: (isHardwareConnected ? AppColors.primary : Colors.orange).withValues(alpha: 0.2), shape: BoxShape.circle),
+                child: Icon(isHardwareConnected ? LucideIcons.cpu : LucideIcons.scanLine, color: isHardwareConnected ? AppColors.primary : Colors.orange, size: 20),
               ),
             ),
             const SizedBox(height: 2),
-            Text(widget.isConnected ? "UPLINK" : "SCAN", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: widget.isConnected ? AppColors.primary : Colors.orange, letterSpacing: 0.5), maxLines: 1),
+            Text(isHardwareConnected ? "UPLINK" : "SCAN", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: isHardwareConnected ? AppColors.primary : Colors.orange, letterSpacing: 0.5), maxLines: 1),
           ],
         ),
       ),
@@ -322,96 +284,102 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Inside _HomeScreenState build method, replace the _currentTabIndex == 0 block:
+    // 👉 WATCHDOG WRAPPER: Listens to real-time hardware drops (like reboots)
+    return ValueListenableBuilder<bool>(
+      valueListenable: HardwareBridge.instance.isConnectedNotifier,
+      builder: (context, isHardwareConnected, child) {
+        return Scaffold(
+          backgroundColor: AppColors.bg,
+          floatingActionButton: _currentTabIndex == 0 && isHardwareConnected
+              ? FloatingActionButton(
+                  backgroundColor: AppColors.primary,
+                  child: const Icon(LucideIcons.qrCode, color: Colors.black),
+                  onPressed: () {
+                    showDialog(context: context, builder: (context) => const SquadSetupDialog());
+                  },
+                )
+              : null,
 
-            Expanded(
-              child: _currentTabIndex == 0 
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                        child: Text(
-                          "COMMUNICATION CHANNELS",
-                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
-                        ),
-                      ),
-                      
-                      Expanded(
-                        child: ListView(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          children: [
-                            // 🌍 CHANNEL 0: GLOBAL MESH
-                            ChatTile(
-                              name: "Global Mesh",
-                              message: widget.isConnected ? "Public Channel 0 Active" : "Hardware disconnected...",
-                              time: "Live", 
-                              isUnread: false, 
-                              isConnected: widget.isConnected, 
-                              onTap: widget.isConnected ? () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveChatScreen(
-                                  chatName: "Global Mesh",
-                                  onBack: () => Navigator.pop(context),
-                                )));
-                              } : () {},
+          body: SafeArea(
+            child: Column(
+              children: [
+                Expanded(
+                  child: _currentTabIndex == 0 
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                            child: Text(
+                              "COMMUNICATION CHANNELS",
+                              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
                             ),
-
-                            // 🛡️ CHANNEL 1: SECURE SQUAD
-                            ChatTile(
-                              name: "Secure Squad",
-                              message: widget.isConnected ? "AES-256 Encrypted (Channel 1)" : "Hardware disconnected...",
-                              time: "Live", 
-                              isUnread: true, 
-                              isConnected: widget.isConnected, 
-                              onTap: widget.isConnected ? () {
-                                Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveChatScreen(
-                                  chatName: "Secure Squad", // ActiveChatScreen checks if this is != "Global Mesh"
-                                  onBack: () => Navigator.pop(context),
-                                )));
-                              } : () {},
+                          ),
+                          Expanded(
+                            child: ListView(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              children: [
+                                ChatTile(
+                                  name: "Global Mesh",
+                                  message: isHardwareConnected ? "Public Channel 0 Active" : "Hardware disconnected...",
+                                  time: "Live", 
+                                  isUnread: false, 
+                                  isConnected: isHardwareConnected, 
+                                  onTap: isHardwareConnected ? () {
+                                    Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveChatScreen(
+                                      chatName: "Global Mesh",
+                                      onBack: () => Navigator.pop(context),
+                                    )));
+                                  } : () {},
+                                ),
+                                ChatTile(
+                                  name: "Secure Squad",
+                                  message: isHardwareConnected ? "AES-256 Encrypted (Channel 1)" : "Hardware disconnected...",
+                                  time: "Live", 
+                                  isUnread: true, 
+                                  isConnected: isHardwareConnected, 
+                                  onTap: isHardwareConnected ? () {
+                                    Navigator.push(context, MaterialPageRoute(builder: (context) => ActiveChatScreen(
+                                      chatName: "Secure Squad", 
+                                      onBack: () => Navigator.pop(context),
+                                    )));
+                                  } : () {},
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  )
-                : _currentTabIndex == 1
-                    ? const NodesScreen() 
-                    : SettingsTab(isConnected: widget.isConnected), 
+                          ),
+                        ],
+                      )
+                    : _currentTabIndex == 1
+                        ? const NodesScreen() 
+                        : SettingsTab(isConnected: isHardwareConnected), 
+                ),
+              ],
             ),
-
-// 🚨 IMPORTANT: Scroll to the very bottom of home_screen.dart 
-// and DELETE the entire "class SquadSetupDialog extends StatefulWidget" block!
-          ],
-        ),
-      ),
-      
-      bottomNavigationBar: Container(
-        height: 75,
-        decoration: const BoxDecoration(color: AppColors.surface, border: Border(top: BorderSide(color: AppColors.border, width: 1))),
-        padding: EdgeInsets.only(bottom: Platform.isIOS ? 15 : 0),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly, 
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            _buildFooterTab(LucideIcons.messageSquare, "Messages", 0),
-            _buildFooterTab(LucideIcons.network, "NODES", 1),
-            _buildFooterTab(LucideIcons.settings, "Settings", 2),
-            _buildBlinkingHardwareLogo(),
-          ],
-        ),
-      ),
+          ),
+          bottomNavigationBar: Container(
+            height: 75,
+            decoration: const BoxDecoration(color: AppColors.surface, border: Border(top: BorderSide(color: AppColors.border, width: 1))),
+            padding: EdgeInsets.only(bottom: Platform.isIOS ? 15 : 0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly, 
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _buildFooterTab(LucideIcons.messageSquare, "Messages", 0),
+                _buildFooterTab(LucideIcons.network, "NODES", 1),
+                _buildFooterTab(LucideIcons.settings, "Settings", 2),
+                _buildBlinkingHardwareLogo(isHardwareConnected),
+              ],
+            ),
+          ),
+        );
+      }
     );
   }
 }
 
 // ==========================================
-// 🛡️ TACTICAL SQUAD PROVISIONING (QR SHARE & SCAN)
+// 🛡️ TACTICAL SQUAD PROVISIONING (OFFICIAL FLOW)
 // ==========================================
 class SquadSetupDialog extends StatefulWidget {
   const SquadSetupDialog({super.key});
@@ -421,10 +389,12 @@ class SquadSetupDialog extends StatefulWidget {
 }
 
 class _SquadSetupDialogState extends State<SquadSetupDialog> {
-  bool _isJoining = false;
-  String _squadName = "ALPHA";
-  List<int> _aesKey = [];
+  int _currentStep = 0; 
+  
+  final TextEditingController _nameController = TextEditingController(text: "SQUAD-1");
+  late Channel _generatedChannel;
   String _qrDataString = "";
+  bool _isChannelSaved = false;
 
   @override
   void initState() {
@@ -432,39 +402,55 @@ class _SquadSetupDialogState extends State<SquadSetupDialog> {
     _generateNewSecureKey();
   }
 
-  // Generates a True Random 32-Byte (256-bit) AES Key
   void _generateNewSecureKey() {
     final random = math.Random.secure();
-    _aesKey = List<int>.generate(32, (i) => random.nextInt(256));
+    final aesKey = List<int>.generate(32, (i) => random.nextInt(256));
     
-    // Format: SENTINLNK:Name:Base64Key
-    String base64Key = base64Encode(_aesKey);
+    _generatedChannel = Channel()
+      ..index = 1
+      ..role = Channel_Role.SECONDARY
+      ..settings = (ChannelSettings()
+        ..name = _nameController.text
+        ..psk = aesKey);
+
+    String base64Data = base64UrlEncode(_generatedChannel.writeToBuffer()).replaceAll('=', '');
+    
     setState(() {
-      _qrDataString = "SENTINLNK:$_squadName:$base64Key";
+      _qrDataString = "https://meshtastic.org/e/#$base64Data";
     });
   }
 
-  // Decodes the QR string and flashes the hardware
+  void _saveToRadio() {
+    _generatedChannel.settings.name = _nameController.text;
+    HardwareBridge.instance.provisionTacticalChannel(_generatedChannel);
+    setState(() => _isChannelSaved = true);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("🟢 CHANNEL SAVED: Flashing hardware... Radio will reboot."), backgroundColor: Colors.green),
+    );
+  }
+
   void _processScannedQR(String qrCode) {
-    if (qrCode.startsWith("SENTINLNK:")) {
+    if (qrCode.contains("meshtastic.org/e/#")) {
       try {
-        final parts = qrCode.split(":");
-        if (parts.length == 3) {
-          String name = parts[1];
-          List<int> decodedKey = base64Decode(parts[2]);
-          
-          HardwareBridge.instance.provisionTacticalChannel(name, decodedKey);
-          
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("🟢 QR ACCEPTED: Flashing hardware for $name...\nRadio will reboot momentarily."), 
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
+        String base64Data = qrCode.split("#").last;
+        while (base64Data.length % 4 != 0) { base64Data += '='; }
+        
+        List<int> decodedBytes = base64Url.decode(base64Data);
+        Channel scannedChannel = Channel.fromBuffer(decodedBytes);
+        
+        HardwareBridge.instance.provisionTacticalChannel(scannedChannel);
+        
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("🟢 SECURE LINK JOINED: ${scannedChannel.settings.name}\nRadio is rebooting..."), 
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 5),
+          ),
+        );
       } catch (e) {
-        print("Invalid QR Format");
+        print("🔴 Invalid QR Format: $e");
       }
     }
   }
@@ -473,68 +459,143 @@ class _SquadSetupDialogState extends State<SquadSetupDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: AppColors.bg,
-      contentPadding: const EdgeInsets.all(16),
+      contentPadding: EdgeInsets.zero,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: AppColors.border)),
-      title: Row(
-        children: [
-          Icon(_isJoining ? LucideIcons.scan : LucideIcons.qrCode, color: AppColors.primary),
-          const SizedBox(width: 12),
-          Expanded(child: Text(_isJoining ? "SCAN SQUAD QR" : "SHARE SQUAD QR", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18))),
-        ],
-      ),
       content: SizedBox(
-        width: 300,
-        height: 300,
-        child: _isJoining 
-          ? ClipRRect(
+        width: MediaQuery.of(context).size.width * 0.85, // Use relative width instead of fixed
+        child: SingleChildScrollView( // 👉 FIX: Prevents vertical pixel overflow
+          child: Column(
+            mainAxisSize: MainAxisSize.min, // 👉 FIX: Hug contents tightly
+            children: [
+              Container(
+                decoration: const BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                child: Row(
+                  children: [
+                    _buildTab(0, "CONFIG", LucideIcons.settings),
+                    _buildTab(1, "SHARE", LucideIcons.qrCode),
+                    _buildTab(2, "SCAN", LucideIcons.scan),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: _buildStepContent(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTab(int index, String title, IconData icon) {
+    bool isActive = _currentStep == index;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _currentStep = index),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: isActive ? AppColors.primary : Colors.transparent, width: 3))),
+          child: Column(
+            children: [
+              Icon(icon, color: isActive ? AppColors.primary : AppColors.textDim, size: 18),
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(title, style: TextStyle(color: isActive ? AppColors.primary : AppColors.textDim, fontSize: 10, fontWeight: FontWeight.bold))
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStepContent() {
+    if (_currentStep == 0) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Channel Name", style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _nameController,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            decoration: const InputDecoration(filled: true, fillColor: AppColors.surface, border: OutlineInputBorder()),
+            onChanged: (val) => _generateNewSecureKey(), 
+          ),
+          const SizedBox(height: 16),
+          const Text("Encryption Key", style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(
+                child: Text("AES-256 (Maximum Security)", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+              ),
+              IconButton(
+                icon: const Icon(LucideIcons.refreshCw, color: AppColors.primary),
+                onPressed: _generateNewSecureKey,
+                tooltip: "Generate New Key",
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(backgroundColor: _isChannelSaved ? AppColors.surface : AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
+              onPressed: _saveToRadio,
+              icon: Icon(_isChannelSaved ? LucideIcons.checkCircle : LucideIcons.save, color: _isChannelSaved ? Colors.green : Colors.black),
+              label: FittedBox( // 👉 FIX: Safely scale text on small devices
+                fit: BoxFit.scaleDown,
+                child: Text(_isChannelSaved ? "SAVED TO RADIO" : "SAVE TO RADIO", style: TextStyle(color: _isChannelSaved ? Colors.green : Colors.black, fontWeight: FontWeight.bold))
+              ),
+            ),
+          ),
+        ],
+      );
+    } else if (_currentStep == 1) {
+      if (!_isChannelSaved) {
+        return const Center(child: Text("⚠️ You must SAVE the channel in the CONFIG tab before sharing it.", textAlign: TextAlign.center, style: TextStyle(color: Colors.orange)));
+      }
+      return Column(
+        children: [
+          Text("Scan this with SentinLNK or the Official Meshtastic App to join '${_nameController.text}'.", textAlign: TextAlign.center, style: const TextStyle(color: AppColors.textDim, fontSize: 12)),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+            child: QrImageView(data: _qrDataString, version: QrVersions.auto, size: 200.0, backgroundColor: Colors.white),
+          ),
+        ],
+      );
+    } else {
+      return Column(
+        children: [
+          const Text("Point camera at a Squad QR code. Hardware will auto-flash upon successful scan.", textAlign: TextAlign.center, style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+          const SizedBox(height: 16),
+          SizedBox(
+            height: 220,
+            width: 220,
+            child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: MobileScanner(
                 onDetect: (capture) {
-                  final List<Barcode> barcodes = capture.barcodes;
-                  for (final barcode in barcodes) {
+                  for (final barcode in capture.barcodes) {
                     if (barcode.rawValue != null) {
                       _processScannedQR(barcode.rawValue!);
-                      break; // Stop after first successful scan
+                      break; 
                     }
                   }
                 },
               ),
-            )
-          : Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text("Scan this securely with another SentinLNK device.", textAlign: TextAlign.center, style: TextStyle(color: AppColors.textDim, fontSize: 12)),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
-                  child: QrImageView(
-                    data: _qrDataString,
-                    version: QrVersions.auto,
-                    size: 200.0,
-                    backgroundColor: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-                  onPressed: () {
-                    HardwareBridge.instance.provisionTacticalChannel(_squadName, _aesKey);
-                    Navigator.pop(context);
-                  },
-                  icon: const Icon(LucideIcons.cpu, color: Colors.black, size: 16),
-                  label: const Text("FLASH LOCAL HARDWARE", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                )
-              ],
             ),
-      ),
-      actionsAlignment: MainAxisAlignment.center,
-      actions: [
-        TextButton(
-          onPressed: () => setState(() => _isJoining = !_isJoining), 
-          child: Text(_isJoining ? "SWITCH TO SHARE" : "SWITCH TO SCANNER", style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold))
-        ),
-      ],
-    );
+          ),
+        ],
+      );
+    }
   }
 }

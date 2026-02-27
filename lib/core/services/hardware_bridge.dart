@@ -19,24 +19,38 @@ class HardwareBridge {
 
   BluetoothCharacteristic? _toRadioChar;
   StreamSubscription<List<int>>? _radioListener;
-  bool _isHardwareConnected = false;
+  StreamSubscription<BluetoothConnectionState>? _connectionStateListener; // 👉 Watchdog Listener
+  
+  // 👉 THE FIX: The missing notifier that home_screen is looking for!
+  final ValueNotifier<bool> isConnectedNotifier = ValueNotifier(false); 
+  
   bool _isSyncing = false; 
   bool _isReading = false;
-
   final ValueNotifier<String> currentSquad = ValueNotifier("Global Mesh");
-
   BluetoothDevice? connectedDevice;
 
-  bool get isConnected => _isHardwareConnected;
+  bool get isConnected => isConnectedNotifier.value;
 
   Future<void> connectAndSync(BluetoothDevice device) async {
-    if (_isSyncing || _isHardwareConnected) return; 
+    if (_isSyncing || isConnectedNotifier.value) return; 
     _isSyncing = true;
     connectedDevice = device; 
 
     try {
-      print("HardwareBridge: Connected to ${device.platformName}, discovering services...");
+      print("HardwareBridge: Connecting to ${device.platformName}...");
+      
+      // Connect to the hardware
+      await device.connect(license: License.free, autoConnect: false);
       StorageService.saveKnownDevice(device.remoteId.str, device.platformName);
+
+      // 👉 THE WATCHDOG: Listen for unexpected drops (like when the radio reboots)
+      _connectionStateListener?.cancel();
+      _connectionStateListener = device.connectionState.listen((BluetoothConnectionState state) {
+        if (state == BluetoothConnectionState.disconnected) {
+          print("⚠️ HARDWARE DISCONNECTED (Likely Rebooting). Initiating Watchdog...");
+          _handleDisconnection();
+        }
+      });
 
       await Future.delayed(const Duration(milliseconds: 500));
       List<BluetoothService> services = await device.discoverServices();
@@ -47,52 +61,75 @@ class HardwareBridge {
       for (var s in services) {
         for (var c in s.characteristics) {
           String uuid = c.uuid.toString().toLowerCase();
-          if (uuid.contains("f75c")) {
-            _toRadioChar = c;
-            print("HardwareBridge: Linked TX Pipeline (toRadio)");
-          }       
-          if (uuid.contains("2c55")) {
-            fromRadio = c;
-            print("HardwareBridge: Linked RX Mailbox (fromRadio)");
-          }
-          if (uuid.contains("ed9d")) {
-            fromNum = c;
-            print("HardwareBridge: Linked Notification Pipeline (fromNum)");
-          }
+          if (uuid.contains("f75c")) _toRadioChar = c;
+          if (uuid.contains("2c55")) fromRadio = c;
+          if (uuid.contains("ed9d")) fromNum = c;
         }
       }
 
       if (_toRadioChar != null && fromRadio != null && fromNum != null) {
-        _isHardwareConnected = true;
-        print("HardwareBridge: Fully Linked! Starting Listener...");
+        print("HardwareBridge: Pipelines Linked! Starting Listener...");
         await _startRadioListener(fromRadio, fromNum); 
+        isConnectedNotifier.value = true; // Tell the UI we are ready!
       } else {
         print("🔴 HardwareBridge: Missing required characteristics!");
       }
     } catch (e) {
       print("Hardware Bridge Error: $e");
+      _handleDisconnection();
     } finally {
       _isSyncing = false;
     }
   }
 
+  Timer? _watchdogTimer; // 👉 NEW: The Auto-Reconnect Engine
+
+  // =========================================================================
+  // 🔄 OFFICIAL AUTO-RECONNECT WATCHDOG
+  // =========================================================================
+  void _handleDisconnection() {
+    isConnectedNotifier.value = false;
+    _toRadioChar = null;
+    _radioListener?.cancel();
+    _radioListener = null;
+
+    // If we have a known device and the watchdog isn't already running, start it!
+    if (connectedDevice != null && !(_watchdogTimer?.isActive ?? false)) {
+      print("⚠️ LINK SEVERED (Radio Rebooting). Engaging Auto-Reconnect Watchdog...");
+      
+      _watchdogTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+        if (isConnectedNotifier.value) {
+          print("🟢 WATCHDOG: Hardware lock re-established. Standing down.");
+          timer.cancel();
+          return;
+        }
+        try {
+          print("🔄 WATCHDOG: Scanning for ${connectedDevice!.platformName}...");
+          await connectAndSync(connectedDevice!);
+        } catch (e) {
+          print("🔄 WATCHDOG: Hardware still offline. Retrying in 5s...");
+        }
+      });
+    }
+  }
+
   Future<void> disconnectAndUnpair() async {
     print("HardwareBridge: Unpairing and Disconnecting...");
+    _watchdogTimer?.cancel(); // 👉 CRITICAL: Kill watchdog so it doesn't reconnect if user intentionally logs out
+    
     if (connectedDevice != null) {
       await StorageService.removeKnownDevice(connectedDevice!.remoteId.str);
       await connectedDevice!.disconnect();
     }
+    connectedDevice = null; // Clear memory
+    
+    isConnectedNotifier.value = false;
+    _toRadioChar = null;
     _radioListener?.cancel();
     _radioListener = null;
-    _toRadioChar = null;
-    _isHardwareConnected = false;
-    _isSyncing = false;
-    _isReading = false;
     currentSquad.value = "Global Mesh"; 
-    connectedDevice = null;
   }
-
-  Future<void> _startRadioListener(BluetoothCharacteristic fromRadio, BluetoothCharacteristic fromNum) async {
+    Future<void> _startRadioListener(BluetoothCharacteristic fromRadio, BluetoothCharacteristic fromNum) async {
     await fromNum.setNotifyValue(true);
     _radioListener = fromNum.onValueReceived.listen((_) {
       _drainMailbox(fromRadio); 
@@ -126,11 +163,14 @@ class HardwareBridge {
           await Future.delayed(const Duration(milliseconds: 10)); 
         }
       }
-    } catch (e) {} finally {
+    } finally {
       _isReading = false; 
     }
   }
 
+  // =========================================================================
+  // 📥 INCOMING MESSAGE ROUTER & TELEMETRY ENGINE
+  // =========================================================================
   void _processDecodedPacket(List<int> bytes) {
     try {
       final fromRadio = FromRadio.fromBuffer(bytes);
@@ -158,13 +198,15 @@ class HardwareBridge {
         if (packet.hasDecoded()) {
           final data = packet.decoded;
           
-          // 👉 FIX: Check for Text Messages regardless of which channel they arrived on
+          // 👉 THE FIX: Channel Isolation for Text Messages
           if (data.portnum == PortNum.TEXT_MESSAGE_APP) {
              try {
                String messageText = utf8.decode(data.payload);
+               
+               // Ensure we don't echo our own messages back to ourselves
                if (senderId != NodeDatabase.instance.localNodeHexId) {
                  
-                 // Check which channel the packet physically arrived on
+                 // Mathematically isolate based on the physical hardware channel
                  bool isSquadMsg = (packet.channel == 1);
                  String type = isSquadMsg ? "SQUAD" : "GLOBAL";
                  
@@ -197,7 +239,9 @@ class HardwareBridge {
           }
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      print("🔴 Packet Decode Error: $e");
+    }
   }
 
   // =========================================================================
@@ -308,12 +352,13 @@ class HardwareBridge {
   // =========================================================================
   // 🛡️ PHASE 1: NATIVE HARDWARE PROVISIONING (OFFICIAL FLOW REPLICA)
   // =========================================================================
-  Future<void> provisionTacticalChannel(String channelName, List<int> aesKey) async {
+  Future<void> provisionTacticalChannel(Channel squadChannel) async {
     if (_toRadioChar == null) {
       print("🔴 FAILED: Hardware bridge not linked.");
       return;
     }
     try {
+      String channelName = squadChannel.settings.name;
       print("🛡️ PROVISIONING HARDWARE: CHANNEL 1 ($channelName)");
       
       // 1. Get Local Node Num to ensure the hardware knows the command is for itself
@@ -322,17 +367,11 @@ class HardwareBridge {
          localNodeNum = int.parse(NodeDatabase.instance.localNodeHexId.replaceAll('!', ''), radix: 16);
       }
 
-      // 2. Build the Channel Settings
-      ChannelSettings settings = ChannelSettings()
-        ..name = channelName
-        ..psk = aesKey;
+      // Enforce Channel 1 and Secondary Role (just in case the QR code was formatted weirdly)
+      squadChannel.index = 1;
+      squadChannel.role = Channel_Role.SECONDARY;
 
-      Channel squadChannel = Channel()
-        ..index = 1 
-        ..settings = settings
-        ..role = Channel_Role.SECONDARY; 
-
-      // 3. 🚨 THE FIX: Properly package the SetChannel command into an AdminMessage
+      // 2. Properly package the SetChannel command into an AdminMessage
       AdminMessage adminMsg = AdminMessage()..setChannel = squadChannel;
       Data adminData = Data()
         ..portnum = PortNum.ADMIN_APP
@@ -354,7 +393,7 @@ class HardwareBridge {
       // Give the hardware a moment to process the byte stream
       await Future.delayed(const Duration(milliseconds: 1000));
 
-      // 4. 🚨 THE FIX: Properly package the Commit command into an AdminMessage
+      // 3. Properly package the Commit command into an AdminMessage
       AdminMessage commitMsg = AdminMessage()..commitEditSettings = true;
       Data commitData = Data()
         ..portnum = PortNum.ADMIN_APP
@@ -373,7 +412,7 @@ class HardwareBridge {
       print("📤 COMMITTING SETTINGS & REBOOTING RADIO...");
       await _toRadioChar!.write(commitReq.writeToBuffer(), withoutResponse: false);
 
-      // 5. Update UI State
+      // 4. Update UI State
       currentSquad.value = channelName;
       print("🟢 SQUAD SECURE LINK INSTALLED SUCCESSFULLY!");
       
