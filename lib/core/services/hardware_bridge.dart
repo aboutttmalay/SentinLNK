@@ -203,24 +203,30 @@ class HardwareBridge {
              try {
                String messageText = utf8.decode(data.payload);
                
-               // Ensure we don't echo our own messages back to ourselves
                if (senderId != NodeDatabase.instance.localNodeHexId) {
-                 
-                 // Mathematically isolate based on the physical hardware channel
                  bool isSquadMsg = (packet.channel == 1);
                  String type = isSquadMsg ? "SQUAD" : "GLOBAL";
                  
-                 print("📥 INCOMING [$type] on Channel ${packet.channel}: $messageText");
-                 
+                 // 👉 NEW: Look up the sender's actual node name from the Radar Map
+                 String sName = senderId;
+                 final radarMap = NodeDatabase.instance.radarMap.value;
+                 if (radarMap.containsKey(senderId)) {
+                     sName = radarMap[senderId]!.shortName; // Uses the 4-character short name
+                 }
+
+                 print("📥 INCOMING [$type] from $sName on Channel ${packet.channel}: $messageText");
                  final timestamp = "${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}";
                  
-                 StorageService.saveMessage(messageText, false, timestamp, isSquad: isSquadMsg);
-                 NodeDatabase.instance.notifyNewMessage("$type|$messageText"); 
+                 // Pass the senderName to Storage
+                 StorageService.saveMessage(messageText, false, timestamp, isSquad: isSquadMsg, senderName: sName);
+                 
+                 // Pass the senderName into the Pulse generator
+                 NodeDatabase.instance.notifyNewMessage("$type|$sName|$messageText"); 
                }
              } catch(e) {
                  print("🔴 Failed to decode incoming text: $e");
              }
-          } 
+          }
           else if (data.portnum == PortNum.NODEINFO_APP) {
              final user = User.fromBuffer(data.payload);
              final tempInfo = NodeInfo()..num = packet.from..user = user;

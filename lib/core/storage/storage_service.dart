@@ -17,9 +17,9 @@ class StorageService {
   }
 
   // 2. Save a Message (Routes to the correct box)
-  static Future<void> saveMessage(String text, bool isMe, String timestamp, {bool isSquad = false}) async {
+  static Future<void> saveMessage(String text, bool isMe, String timestamp, {bool isSquad = false, String? senderName}) async {
     final box = Hive.box<ChatMessage>(isSquad ? _squadBox : _globalBox);
-    final message = ChatMessage(text: text, isMe: isMe, timestamp: timestamp);
+    final message = ChatMessage(text: text, isMe: isMe, timestamp: timestamp, senderName: senderName);
     await box.add(message); 
   }
 

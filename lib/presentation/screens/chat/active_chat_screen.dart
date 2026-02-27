@@ -8,6 +8,9 @@ import '../../../data/models/node_database.dart';
 import '../../../core/services/hardware_bridge.dart'; 
 
 class ActiveChatScreen extends StatefulWidget {
+  // 👉 THE FIX: This is the global tracker that home_screen looks for!
+  static String? currentOpenChat; 
+
   final VoidCallback onBack;
   final String chatName;
 
@@ -30,24 +33,23 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
   @override
   void initState() {
     super.initState();
+    // 👉 Tell the app exactly which chat is open right now
+    ActiveChatScreen.currentOpenChat = widget.chatName; 
+    
     _loadMessages();
-    
-    // 👉 REMOVED: connectAndSync() call here.
-    // It is no longer needed here because connection is now strictly handled
-    // by the ScanScreen when a user explicitly selects a device. 
-    
-    // Listen for background messages
     NodeDatabase.instance.latestIncomingMessage.addListener(_onNewRadioMessage);
   }
 
   @override
   void dispose() {
+    // 👉 Clear the tracker when the user closes the chat screen
+    ActiveChatScreen.currentOpenChat = null; 
+    
     NodeDatabase.instance.latestIncomingMessage.removeListener(_onNewRadioMessage);
     super.dispose();
   }
 
   Future<void> _loadMessages() async {
-    // 👉 FIX: Check mode and load ONLY that specific history
     bool isSquadMode = widget.chatName != "Global Mesh";
     final messages = StorageService.getHistory(isSquad: isSquadMode); 
     
@@ -66,20 +68,16 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
     if (rawMsg != null) {
       final parts = rawMsg.split('|');
       
-      // Expected Format: "SQUAD|Hello|16281923" or "GLOBAL|Hello|16281923"
-      if (parts.length >= 3) {
+      if (parts.length >= 4) {
         String msgType = parts[0];
-        String msgText = parts[1];
+        String senderName = parts[1];
+        String msgText = parts[2];
 
-        // CHECK: Are we currently in Squad Mode?
         bool isSquadMode = HardwareBridge.instance.currentSquad.value != "Global Mesh";
 
-        // FILTER: 
-        // Only show SQUAD messages if we are in Squad mode.
-        // Only show GLOBAL messages if we are in Global mode.
         if ((isSquadMode && msgType == "SQUAD") || (!isSquadMode && msgType == "GLOBAL")) {
            setState(() {
-             _messages.add(ChatMessage(text: msgText, isMe: false, timestamp: "Now"));
+             _messages.add(ChatMessage(text: msgText, isMe: false, timestamp: "Now", senderName: senderName));
            });
            _scrollToBottom();
         }
@@ -96,7 +94,6 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
     final timestamp = "${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}";
     bool isSquadMode = HardwareBridge.instance.currentSquad.value != "Global Mesh";
     
-    // 👉 FIX: Save to the correct database box
     await StorageService.saveMessage(text.trim(), true, timestamp, isSquad: isSquadMode);
 
     setState(() {
@@ -148,6 +145,44 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
             ),
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(LucideIcons.trash2, color: Colors.redAccent, size: 20),
+            tooltip: "Clear Chat History",
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  backgroundColor: AppColors.bg,
+                  title: const Row(
+                    children: [
+                      Icon(LucideIcons.alertTriangle, color: Colors.red),
+                      SizedBox(width: 10),
+                      Text("WIPE DATA?", style: TextStyle(color: Colors.white)),
+                    ],
+                  ),
+                  content: const Text("This will permanently delete all saved messages. This action cannot be undone.", style: TextStyle(color: AppColors.textDim)),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context), 
+                      child: const Text("CANCEL", style: TextStyle(color: Colors.grey))
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        await StorageService.clearLogs();
+                        setState(() {
+                          _messages.clear();
+                        });
+                        Navigator.pop(context);
+                      }, 
+                      child: const Text("CONFIRM WIPE", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -179,6 +214,14 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              if (!isMe)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Text(
+                                    msg.senderName ?? "Unknown Node",
+                                    style: TextStyle(color: AppColors.primary.withValues(alpha: 0.8), fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                                  ),
+                                ),
                               Text(
                                 msg.text,
                                 style: const TextStyle(color: Colors.white, fontSize: 14),

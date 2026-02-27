@@ -5,34 +5,37 @@ class ChatMessage extends HiveObject {
   final String text;
   final bool isMe;
   final String timestamp;
+  final String? senderName; // 👉 NEW: Stores the node name
 
   ChatMessage({
     required this.text,
     required this.isMe,
     required this.timestamp,
+    this.senderName, 
   });
 }
 
-// 2. Manually Write the Adapter (The "Bridge" for the Database)
+// 2. Manually Write the Adapter
 class ChatMessageAdapter extends TypeAdapter<ChatMessage> {
   @override
-  final int typeId = 0; // Unique ID for this object type
+  final int typeId = 0; 
 
   @override
   ChatMessage read(BinaryReader reader) {
-    // Read the data back in the exact order we wrote it
     return ChatMessage(
       text: reader.readString(),
       isMe: reader.readBool(),
       timestamp: reader.readString(),
+      // 👉 FIX: reader.availableBytes ensures old databases don't crash when reading the new field
+      senderName: reader.availableBytes > 0 ? reader.readString() : "Unknown Node", 
     );
   }
 
   @override
   void write(BinaryWriter writer, ChatMessage obj) {
-    // Write the data to disk
     writer.writeString(obj.text);
     writer.writeBool(obj.isMe);
     writer.writeString(obj.timestamp);
+    writer.writeString(obj.senderName ?? "Unknown Node"); // 👉 NEW
   }
 }

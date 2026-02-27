@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:meshtastic_flutter/generated/channel.pb.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../widgets/pulse_animation.dart';
@@ -36,11 +37,26 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentTabIndex = 0;
+  
+  // 👉 NATIVE NOTIFICATIONS: Initialize the plugin
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
   @override
   void initState() {
     super.initState();
+    _initializeNotifications(); 
     NodeDatabase.instance.latestIncomingMessage.addListener(_onGlobalMessageReceived);
+  }
+
+  // 👉 NATIVE NOTIFICATIONS: Setup OS-level background alerts
+  void _initializeNotifications() async {
+    const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings();
+    const InitializationSettings initializationSettings = InitializationSettings(
+      android: initializationSettingsAndroid, 
+      iOS: initializationSettingsIOS
+    );
+    await flutterLocalNotificationsPlugin.initialize(settings: initializationSettings);
   }
 
   @override
@@ -49,41 +65,43 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  void _onGlobalMessageReceived() {
+  
+  // 👉 NATIVE NOTIFICATIONS: Intelligent Context-Aware Routing
+  void _onGlobalMessageReceived() async {
     final rawMsg = NodeDatabase.instance.latestIncomingMessage.value;
     if (rawMsg != null) {
       final parts = rawMsg.split('|');
-      if (parts.length >= 2) {
+      
+      if (parts.length >= 3) {
         String type = parts[0];
-        String text = parts[1];
+        String sender = parts[1];
+        String text = parts[2];
         
-        if (ModalRoute.of(context)?.isCurrent == true) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.only(bottom: 80, left: 16, right: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              content: Row(
-                children: [
-                  Icon(type == "SQUAD" ? LucideIcons.shieldCheck : LucideIcons.messageSquare, color: Colors.white, size: 20),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text("NEW ${type == 'SQUAD' ? 'ENCRYPTED' : 'GLOBAL'} MESSAGE", style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white70)),
-                        Text(text, style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              backgroundColor: type == "SQUAD" ? Colors.green[800] : AppColors.primary,
-              duration: const Duration(seconds: 4),
-            )
-          );
+        // 👉 NEW: What chat does this message belong to?
+        String targetChatName = type == "SQUAD" ? "Secure Squad" : "Global Mesh";
+        
+        // 👉 NEW: If the user is already staring at this chat, SUPPRESS the pop-up notification!
+        if (ActiveChatScreen.currentOpenChat == targetChatName) {
+          return; 
         }
+        
+        AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+          'tactical_comms', 
+          'Tactical Communications',
+          channelDescription: 'Incoming LoRa radio messages',
+          importance: Importance.max,
+          priority: Priority.high,
+          color: type == "SQUAD" ? const Color(0xFF1B5E20) : const Color(0xFF22C55E),
+        );
+        
+        NotificationDetails notificationDetails = NotificationDetails(android: androidDetails);
+
+        await flutterLocalNotificationsPlugin.show(
+          id: math.Random().nextInt(1000), 
+          title: type == "SQUAD" ? "🔒 $sender (Squad)" : "🌍 $sender (Global)", 
+          body: text, 
+          notificationDetails: notificationDetails,
+        );
       }
     }
   }
@@ -284,7 +302,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 👉 WATCHDOG WRAPPER: Listens to real-time hardware drops (like reboots)
     return ValueListenableBuilder<bool>(
       valueListenable: HardwareBridge.instance.isConnectedNotifier,
       builder: (context, isHardwareConnected, child) {
@@ -462,10 +479,10 @@ class _SquadSetupDialogState extends State<SquadSetupDialog> {
       contentPadding: EdgeInsets.zero,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: AppColors.border)),
       content: SizedBox(
-        width: MediaQuery.of(context).size.width * 0.85, // Use relative width instead of fixed
-        child: SingleChildScrollView( // 👉 FIX: Prevents vertical pixel overflow
+        width: MediaQuery.of(context).size.width * 0.85, 
+        child: SingleChildScrollView( 
           child: Column(
-            mainAxisSize: MainAxisSize.min, // 👉 FIX: Hug contents tightly
+            mainAxisSize: MainAxisSize.min, 
             children: [
               Container(
                 decoration: const BoxDecoration(
@@ -549,7 +566,7 @@ class _SquadSetupDialogState extends State<SquadSetupDialog> {
               style: ElevatedButton.styleFrom(backgroundColor: _isChannelSaved ? AppColors.surface : AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
               onPressed: _saveToRadio,
               icon: Icon(_isChannelSaved ? LucideIcons.checkCircle : LucideIcons.save, color: _isChannelSaved ? Colors.green : Colors.black),
-              label: FittedBox( // 👉 FIX: Safely scale text on small devices
+              label: FittedBox( 
                 fit: BoxFit.scaleDown,
                 child: Text(_isChannelSaved ? "SAVED TO RADIO" : "SAVE TO RADIO", style: TextStyle(color: _isChannelSaved ? Colors.green : Colors.black, fontWeight: FontWeight.bold))
               ),
