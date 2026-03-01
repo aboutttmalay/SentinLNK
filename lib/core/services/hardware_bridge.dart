@@ -9,6 +9,8 @@ import 'package:meshtastic_flutter/generated/telemetry.pb.dart';
 import 'package:crypto/crypto.dart';
 import 'package:meshtastic_flutter/generated/channel.pb.dart';
 import 'package:meshtastic_flutter/generated/admin.pb.dart';
+// 👉 NEW: Required for extracting security keys
+import 'package:meshtastic_flutter/generated/config.pb.dart';
 
 import '../../data/models/node_database.dart';
 import '../storage/storage_service.dart';
@@ -23,6 +25,10 @@ class HardwareBridge {
   
   // 👉 THE FIX: The missing notifier that home_screen is looking for!
   final ValueNotifier<bool> isConnectedNotifier = ValueNotifier(false); 
+  
+  // 👉 NEW: Cryptography Trackers (Matches Official App Logic)
+  final ValueNotifier<String> nodePublicKey = ValueNotifier("WAITING FOR UPLINK...");
+  final ValueNotifier<String> nodePrivateKey = ValueNotifier("WAITING FOR UPLINK...");
   
   bool _isSyncing = false; 
   bool _isReading = false;
@@ -186,6 +192,22 @@ class HardwareBridge {
          return; 
       }
       if (fromRadio.hasConfigCompleteId()) { return; }
+
+      // 👉 NEW: Extract the Direct Message (ECDH) Keys!
+      if (fromRadio.hasConfig()) {
+        if (fromRadio.config.hasSecurity()) {
+          var sec = fromRadio.config.security;
+          
+          // The official app uses URL-safe Base64 (without padding) to represent keys
+          if (sec.publicKey.isNotEmpty) {
+            nodePublicKey.value = base64UrlEncode(sec.publicKey).replaceAll('=', '');
+          }
+          if (sec.privateKey.isNotEmpty) {
+            nodePrivateKey.value = base64UrlEncode(sec.privateKey).replaceAll('=', '');
+          }
+          print("🔐 Node Cryptography Keys Synced!");
+        }
+      }
 
       if (fromRadio.hasPacket()) {
         final packet = fromRadio.packet;
@@ -424,6 +446,50 @@ class HardwareBridge {
       
     } catch (e) {
       print("🔴 SQUAD SETUP ERROR: $e");
+    }
+  }
+
+  // =========================================================================
+  // 🔐 REGENERATE ECDH DIRECT MESSAGE KEYS
+  // =========================================================================
+  Future<void> regenerateMeshKeys() async {
+    if (_toRadioChar == null) return;
+    try {
+      print("🛡️ INITIATING KEY REGENERATION...");
+      int localNodeNum = 0xFFFFFFFF; 
+      if (NodeDatabase.instance.localNodeHexId.isNotEmpty) {
+         localNodeNum = int.parse(NodeDatabase.instance.localNodeHexId.replaceAll('!', ''), radix: 16);
+      }
+
+      // 👉 THE FIX: Using native Protobuf methods to avoid the class naming error!
+      // Sending an empty public/private key array commands the firmware to roll new keys.
+      Config newConfig = Config();
+      newConfig.ensureSecurity().publicKey = [];
+      newConfig.ensureSecurity().privateKey = [];
+
+      AdminMessage adminMsg = AdminMessage()..setConfig = newConfig;
+      Data adminData = Data()..portnum = PortNum.ADMIN_APP..payload = adminMsg.writeToBuffer();
+        
+      MeshPacket adminPacket = MeshPacket()
+        ..to = localNodeNum
+        ..from = localNodeNum 
+        ..id = Random().nextInt(0x7FFFFFFF)
+        ..channel = 0 
+        ..decoded = adminData
+        ..wantAck = true;
+
+      await _toRadioChar!.write((ToRadio()..packet = adminPacket).writeToBuffer(), withoutResponse: false);
+      
+      // Send Reboot Command to finalize
+      await Future.delayed(const Duration(milliseconds: 500));
+      AdminMessage commitMsg = AdminMessage()..commitEditSettings = true;
+      Data commitData = Data()..portnum = PortNum.ADMIN_APP..payload = commitMsg.writeToBuffer();
+      MeshPacket commitPacket = MeshPacket()..to = localNodeNum..from = localNodeNum..channel=0..id = Random().nextInt(0x7FFFFFFF)..decoded = commitData;
+      await _toRadioChar!.write((ToRadio()..packet = commitPacket).writeToBuffer(), withoutResponse: false);
+      
+      print("🟢 KEY REGENERATION COMMAND SENT. RADIO REBOOTING.");
+    } catch (e) {
+      print("🔴 ERROR REGENERATING KEYS: $e");
     }
   }
 }

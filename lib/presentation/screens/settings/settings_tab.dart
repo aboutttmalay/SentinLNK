@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/services/hardware_bridge.dart';
 
 // ==========================================
 // 1. THE MAIN SETTINGS TAB
@@ -120,9 +123,9 @@ class SettingsTab extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text("Security", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      Text("Security & Encryption", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                       SizedBox(height: 4),
-                      Text("Encryption, Bluetooth PIN, Remote Admin", style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+                      Text("Direct Message Keys, ECDH", style: TextStyle(color: AppColors.textDim, fontSize: 12)),
                     ],
                   ),
                 ),
@@ -217,7 +220,9 @@ class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
       for (var c in meshService.characteristics) {
         String uuid = c.uuid.toString().toLowerCase();
         if (uuid.contains("f75c76d2")) toRadioChar = c;
-        if (uuid.contains("8ba2bcc2")) fromRadioChar = c; 
+        if (uuid.contains("8ba2bcc2") || uuid.contains("2c55e69e")) {
+          fromRadioChar = c; 
+        }
       }
 
       if (toRadioChar == null || fromRadioChar == null) {
@@ -338,7 +343,7 @@ class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
 
   @override
   Widget build(BuildContext context) {
-    bool hasChanges = _selectedRegion != _hwRegion || _usePreset != _hwUsePreset || _selectedPreset != _hwPreset || _txPower != _hwTxPower || _hopLimit != _hwHopLimit;
+    bool hasChanges = _selectedRegion != _hwRegion || _usePreset != _hwUsePreset || _selectedPreset != _hwPreset || _txPower != _hwTxPower || _hwHopLimit != _hwHopLimit;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -463,7 +468,7 @@ class _LoRaConfigScreenState extends State<LoRaConfigScreen> {
 }
 
 // ==========================================
-// 3. THE NEW SECURITY CONFIGURATION SCREEN
+// 3. THE NEW SECURITY CONFIGURATION SCREEN (Direct Message Keys)
 // ==========================================
 class SecurityConfigScreen extends StatefulWidget {
   const SecurityConfigScreen({super.key});
@@ -473,28 +478,153 @@ class SecurityConfigScreen extends StatefulWidget {
 }
 
 class _SecurityConfigScreenState extends State<SecurityConfigScreen> {
-  // Temporary State Values (Simulated read from radio)
-  String _btPairingMode = "Secure PIN";
-  bool _allowRemoteAdmin = false;
+  bool _isPrivateKeyVisible = false;
 
-  void _showWarningDialog(String title, String desc, VoidCallback onConfirm) {
+  void _copyToClipboard(String text, String label) {
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("🟢 $label copied to clipboard", style: const TextStyle(color: Colors.white)),
+        backgroundColor: Colors.green[800],
+        behavior: SnackBarBehavior.floating,
+      )
+    );
+  }
+
+  void _showRegenerateWarningDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: Text(title, style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-        content: Text(desc, style: const TextStyle(color: Colors.white70)),
+        backgroundColor: AppColors.bg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Colors.redAccent)),
+        title: const Row(
+          children: [
+            Icon(LucideIcons.alertOctagon, color: Colors.redAccent),
+            SizedBox(width: 10),
+            Text("WARNING", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          "Regenerating your Direct Message key will permanently erase your current private key. \n\nYou will lose the ability to decrypt past direct messages, and other nodes will not be able to message you until they receive your new public key over the mesh.\n\nAre you sure you want to proceed?",
+          style: TextStyle(color: AppColors.textDim, height: 1.5),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: AppColors.textDim))),
           TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("CANCEL", style: TextStyle(color: Colors.white)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
             onPressed: () {
               Navigator.pop(context);
-              onConfirm();
+              // 👉 TRIGGER HARDWARE KEY ROLL
+              HardwareBridge.instance.regenerateMeshKeys();
+              
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("🔐 Keys regenerating. Hardware will reboot..."), backgroundColor: Colors.orange)
+              );
+              Navigator.pop(context); // Pop out of settings page since radio is rebooting
             },
-            child: const Text("PROCEED", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            child: const Text("REGENERATE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
+    );
+  }
+
+  void _exportKeys() async {
+    String pubKey = HardwareBridge.instance.nodePublicKey.value;
+    String privKey = HardwareBridge.instance.nodePrivateKey.value;
+    
+    String exportData = "--- SentinLNK Node Keys ---\nPublic Key: $pubKey\nPrivate Key: $privKey\n---------------------------";
+    
+    try {
+      Directory? directory;
+      if (Platform.isAndroid) {
+        directory = Directory('/storage/emulated/0/Download');
+      } else {
+        directory = Directory.systemTemp; 
+      }
+
+      if (!await directory.exists()) {
+        await directory.create(recursive: true);
+      }
+
+      File file = File('${directory.path}/sentinlnk_keys_${DateTime.now().millisecondsSinceEpoch}.txt');
+      await file.writeAsString(exportData);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("💾 Keys successfully exported to: ${file.path}", style: const TextStyle(color: Colors.white)),
+            backgroundColor: Colors.green[800],
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
+          )
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("🔴 Failed to export keys: $e"), backgroundColor: Colors.red)
+        );
+      }
+    }
+  }
+
+  Widget _buildKeyField(String title, String value, String description, bool isPrivate, String actualPrivateKey) {
+    // Handling the blur effect for private keys
+    String displayValue = value;
+    if (isPrivate && !_isPrivateKeyVisible) {
+      displayValue = "••••••••••••••••••••••••••••••••••••••••";
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  displayValue,
+                  style: TextStyle(
+                    color: isPrivate && !_isPrivateKeyVisible ? Colors.redAccent : AppColors.primary, 
+                    fontFamily: 'monospace',
+                    fontSize: 12
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (isPrivate)
+                IconButton(
+                  icon: Icon(_isPrivateKeyVisible ? LucideIcons.eyeOff : LucideIcons.eye, color: AppColors.textDim, size: 20),
+                  onPressed: () {
+                    setState(() {
+                      _isPrivateKeyVisible = !_isPrivateKeyVisible;
+                    });
+                  },
+                ),
+              IconButton(
+                icon: const Icon(LucideIcons.copy, color: AppColors.textDim, size: 20),
+                onPressed: () => _copyToClipboard(isPrivate ? actualPrivateKey : value, title),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(description, style: const TextStyle(color: AppColors.textDim, fontSize: 11, height: 1.4)),
+        const SizedBox(height: 24),
+      ],
     );
   }
 
@@ -508,144 +638,85 @@ class _SecurityConfigScreenState extends State<SecurityConfigScreen> {
         leading: IconButton(icon: const Icon(LucideIcons.chevronLeft, color: Colors.white), onPressed: () => Navigator.pop(context)),
         title: const Text("Security & Encryption", style: TextStyle(color: Colors.white, fontSize: 16, letterSpacing: 1)),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          
-          // --- BLUETOOTH SECURITY ---
-          const Text("BLUETOOTH ACCESS", style: TextStyle(color: AppColors.textDim, fontSize: 12, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            decoration: BoxDecoration(
-              color: AppColors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.border),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _btPairingMode, isExpanded: true, dropdownColor: AppColors.surface,
-                icon: const Icon(LucideIcons.chevronDown, color: AppColors.textDim),
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-                items: ["Secure PIN", "Fixed PIN", "No PIN (Insecure)"].map((String item) { 
-                  return DropdownMenuItem<String>(value: item, child: Text(item)); 
-                }).toList(),
-                onChanged: (val) => setState(() => _btPairingMode = val!),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text("Prevents unauthorized phones from linking to your physical node.", style: TextStyle(color: Colors.white38, fontSize: 11)),
-          
-          const SizedBox(height: 32),
-
-          // --- NETWORK ENCRYPTION ---
-          const Text("MESH ENCRYPTION (AES-256)", style: TextStyle(color: AppColors.textDim, fontSize: 12, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.border),
-            ),
-            child: Column(
-              children: [
-                const Row(
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: ValueListenableBuilder<String>(
+          // 👉 LIVE SYNC: Stream the Public Key
+          valueListenable: HardwareBridge.instance.nodePublicKey,
+          builder: (context, pubKey, child) {
+            return ValueListenableBuilder<String>(
+              // 👉 LIVE SYNC: Stream the Private Key
+              valueListenable: HardwareBridge.instance.nodePrivateKey,
+              builder: (context, privKey, child) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(LucideIcons.key, color: AppColors.primary, size: 20),
-                    SizedBox(width: 12),
-                    Expanded(child: Text("Primary Channel Key", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold))),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(6)),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // 👉 FIX: Wrapped in Expanded to stop the 3.6 pixel overflow!
-                      Expanded(
-                        child: Text(
-                          "••••••••••••••••••••••••", 
-                          style: TextStyle(color: AppColors.textDim, letterSpacing: 2),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                    const Row(
+                      children: [
+                        Icon(LucideIcons.shield, color: AppColors.primary, size: 18),
+                        SizedBox(width: 8),
+                        Text("DIRECT MESSAGE KEY", style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                      ],
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Divider(color: AppColors.border),
+                    ),
+
+                    // PUBLIC KEY INJECTION
+                    _buildKeyField(
+                      "Public Key", 
+                      pubKey, 
+                      "Generated from your private key and sent out to other nodes on the mesh to allow them to compute a shared secret key.", 
+                      false,
+                      ""
+                    ),
+
+                    // PRIVATE KEY INJECTION
+                    _buildKeyField(
+                      "Private Key", 
+                      privKey, 
+                      "Used to create a shared key with a remote node. Never share this key. If compromised, regenerate immediately.", 
+                      true,
+                      privKey
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    // ACTION BUTTONS
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.surface,
+                          side: const BorderSide(color: AppColors.primary),
+                          padding: const EdgeInsets.symmetric(vertical: 14)
                         ),
+                        onPressed: pubKey.contains("WAITING") ? null : _exportKeys,
+                        icon: const Icon(LucideIcons.download, color: AppColors.primary),
+                        label: const Text("EXPORT KEYS", style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, letterSpacing: 1)),
                       ),
-                      SizedBox(width: 8),
-                      Icon(LucideIcons.eye, color: AppColors.textDim, size: 16),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      _showWarningDialog("Regenerate Key?", "This will break communication with your current mesh. Other nodes will need to scan your new QR code to reconnect.", () {});
-                    },
-                    icon: const Icon(LucideIcons.refreshCw, color: Colors.orangeAccent, size: 16),
-                    label: const Text("REGENERATE KEY", style: TextStyle(color: Colors.orangeAccent)),
-                    style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.orangeAccent)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          // --- REMOTE ADMIN ---
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.border)),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text("Remote Administration", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-                      SizedBox(height: 4),
-                      Text("Allow changing settings over the radio mesh via admin channel.", style: TextStyle(color: AppColors.textDim, fontSize: 11)),
-                    ],
-                  ),
-                ),
-                Switch(value: _allowRemoteAdmin, activeThumbColor: AppColors.primary, inactiveTrackColor: AppColors.bg, onChanged: (val) => setState(() => _allowRemoteAdmin = val)),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 48),
-
-          // --- DANGER ZONE ---
-          const Text("DANGER ZONE", style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.redAccent.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
-            ),
-            child: Column(
-              children: [
-                const Text("Wiping the node will erase all network databases, reset encryption keys, and reboot the hardware. This action is irreversible.", 
-                  style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.4)),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  height: 45,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      _showWarningDialog("FACTORY RESET", "Are you absolutely sure? This will wipe the hardware completely.", () {});
-                    },
-                    icon: const Icon(LucideIcons.skull, color: Colors.white, size: 18),
-                    label: const Text("FACTORY RESET NODE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1)),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                  ),
-                )
-              ],
-            ),
-          )
-        ],
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.redAccent.withValues(alpha: 0.1),
+                          side: const BorderSide(color: Colors.redAccent),
+                          padding: const EdgeInsets.symmetric(vertical: 14)
+                        ),
+                        onPressed: pubKey.contains("WAITING") ? null : _showRegenerateWarningDialog,
+                        icon: const Icon(LucideIcons.refreshCcw, color: Colors.redAccent),
+                        label: const Text("REGENERATE PRIVATE KEY", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                      ),
+                    ),
+                  ],
+                );
+              }
+            );
+          }
+        ),
       ),
     );
   }

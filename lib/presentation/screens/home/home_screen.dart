@@ -576,12 +576,30 @@ class _SquadSetupDialogState extends State<SquadSetupDialog> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(backgroundColor: _isChannelSaved ? AppColors.surface : AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
-              onPressed: _saveToRadio,
-              icon: Icon(_isChannelSaved ? LucideIcons.checkCircle : LucideIcons.save, color: _isChannelSaved ? Colors.green : Colors.black),
+              style: ElevatedButton.styleFrom(
+                // 👉 FIX: Replaced the 'grey' surface color with a deep tactical green
+                backgroundColor: _isChannelSaved ? Colors.green[800] : AppColors.primary, 
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                // 👉 ADDED: A bright glowing border when successfully saved
+                side: _isChannelSaved ? const BorderSide(color: Colors.greenAccent, width: 2) : BorderSide.none,
+              ),
+              // 👉 FIX: By using an empty function `() {}` instead of `null`, we prevent Flutter from turning the button into a grey disabled state!
+              onPressed: _isChannelSaved ? () {} : _saveToRadio,
+              icon: Icon(
+                _isChannelSaved ? LucideIcons.checkCircle : LucideIcons.cpu, 
+                color: _isChannelSaved ? Colors.white : Colors.black
+              ),
               label: FittedBox( 
                 fit: BoxFit.scaleDown,
-                child: Text(_isChannelSaved ? "SAVED TO RADIO" : "SAVE TO RADIO", style: TextStyle(color: _isChannelSaved ? Colors.green : Colors.black, fontWeight: FontWeight.bold))
+                child: Text(
+                  // 👉 FIX: Better tactical wording
+                  _isChannelSaved ? "UPLINK CONFIRMED" : "SAVE TO RADIO", 
+                  style: TextStyle(
+                    color: _isChannelSaved ? Colors.white : Colors.black, 
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1, // Added letter spacing for a cleaner look
+                  )
+                )
               ),
             ),
           ),
