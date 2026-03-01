@@ -35,20 +35,20 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentTabIndex = 0;
+  bool _isAppInForeground = true; 
   
-  // 👉 NATIVE NOTIFICATIONS: Initialize the plugin
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); 
     _initializeNotifications(); 
     NodeDatabase.instance.latestIncomingMessage.addListener(_onGlobalMessageReceived);
   }
 
-  // 👉 NATIVE NOTIFICATIONS: Setup OS-level background alerts
   void _initializeNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
     const DarwinInitializationSettings initializationSettingsIOS = DarwinInitializationSettings();
@@ -57,16 +57,24 @@ class _HomeScreenState extends State<HomeScreen> {
       iOS: initializationSettingsIOS
     );
     await flutterLocalNotificationsPlugin.initialize(settings: initializationSettings);
+    flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.requestNotificationsPermission();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this); 
     NodeDatabase.instance.latestIncomingMessage.removeListener(_onGlobalMessageReceived);
     super.dispose();
   }
 
-  
-  // 👉 NATIVE NOTIFICATIONS: Intelligent Context-Aware Routing
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _isAppInForeground = (state == AppLifecycleState.resumed);
+  }
+
+  // 👉 THE FIX: No more colorful SnackBar! Only native notifications are triggered here.
   void _onGlobalMessageReceived() async {
     final rawMsg = NodeDatabase.instance.latestIncomingMessage.value;
     if (rawMsg != null) {
@@ -77,11 +85,16 @@ class _HomeScreenState extends State<HomeScreen> {
         String sender = parts[1];
         String text = parts[2];
         
-        // 👉 NEW: What chat does this message belong to?
         String targetChatName = type == "SQUAD" ? "Secure Squad" : "Global Mesh";
-        
-        // 👉 NEW: If the user is already staring at this chat, SUPPRESS the pop-up notification!
+        // 👉 FIX: Removed `_isAppInForeground`. 
+        // Now, banners WILL drop down while you are using the app, 
+        // UNLESS you are staring directly at the chat where the message belongs!
         if (ActiveChatScreen.currentOpenChat == targetChatName) {
+          return; 
+        }
+        
+        // Suppress native pop-up if the app is actively on your screen
+        if (_isAppInForeground || ActiveChatScreen.currentOpenChat == targetChatName) {
           return; 
         }
         
