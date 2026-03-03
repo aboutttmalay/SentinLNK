@@ -6,6 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../data/models/chat_message.dart';
 import '../../../data/models/node_database.dart'; 
 import '../../../core/services/hardware_bridge.dart'; 
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ActiveChatScreen extends StatefulWidget {
   // 👉 THE FIX: This is the global tracker that home_screen looks for!
@@ -29,10 +30,12 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
   bool _isLoading = true;
+  List<String> _quickCommands = [];
 
   @override
   void initState() {
     super.initState();
+    _loadQuickCommands();
     // 👉 Tell the app exactly which chat is open right now
     ActiveChatScreen.currentOpenChat = widget.chatName; 
     
@@ -47,6 +50,17 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
     
     NodeDatabase.instance.latestIncomingMessage.removeListener(_onNewRadioMessage);
     super.dispose();
+  }
+
+  Future<void> _loadQuickCommands() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String>? saved = prefs.getStringList('tactical_commands');
+    if (saved == null || saved.isEmpty) {
+      saved = ["CONTACT FRONT", "MEDIC REQUIRED", "RALLY AT WAYPOINT", "BINGO AMMO"];
+    }
+    setState(() {
+      _quickCommands = saved!;
+    });
   }
 
   Future<void> _loadMessages() async {
@@ -117,6 +131,44 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
     });
   }
 
+  // ==========================================
+  // ⚡ QUICK-TAP HORIZONTAL BAR
+  // ==========================================
+  Widget _buildQuickTapBar() {
+    if (_quickCommands.isEmpty) return const SizedBox.shrink();
+    
+    return Container(
+      height: 45,
+      margin: const EdgeInsets.only(bottom: 8, top: 4),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: _quickCommands.length,
+        itemBuilder: (context, index) {
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent.withValues(alpha: 0.15),
+                side: const BorderSide(color: Colors.redAccent, width: 1.5),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
+              onPressed: () {
+                // Instantly send the hardware command using the main _sendMessage router!
+                _sendMessage(_quickCommands[index]);
+              },
+              child: Text(
+                _quickCommands[index], 
+                style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1)
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -136,7 +188,7 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white, letterSpacing: 1),
             ),
             Text(
-              HardwareBridge.instance.isConnected ? "🟢 SECURE LORA LINK ACTIVE" : "🔴 OFFLINE",
+              HardwareBridge.instance.isConnected ? "🟢 SECURE LORA LINK ACTIVE" : "🟠 OFFLINE",
               style: TextStyle(
                 color: HardwareBridge.instance.isConnected ? AppColors.primary : Colors.orangeAccent, 
                 fontSize: 10, 
@@ -249,6 +301,9 @@ class _ActiveChatScreenState extends State<ActiveChatScreen> {
                     },
                   ),
           ),
+          
+          // 👉 NEW: Tactical Quick-Tap Bar inserted right above the chat box!
+          _buildQuickTapBar(),
           
           Container(
             padding: const EdgeInsets.all(16),

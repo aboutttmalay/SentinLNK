@@ -33,7 +33,7 @@ class _StoryboardControllerState extends State<StoryboardController> {
   void _openChat() => setState(() => _currentState = AppState.chat);
   void _goBackToDashboard() => setState(() => _currentState = AppState.connected);
   
-  // ADDED: Function to handle disconnection
+  // Function to handle disconnection
   void _disconnectNode() => setState(() => _currentState = AppState.disconnected);
 
   @override
@@ -71,8 +71,11 @@ class _StoryboardControllerState extends State<StoryboardController> {
       case AppState.connected:
         return HomeScreen(
           isConnected: true, 
-          onAction: _openChat,
-          onDisconnect: _disconnectNode, // Pass the disconnect action
+          // 👉 THE FIX: Changed this from _openChat to _startScan.
+          // Because the HomeScreen opens chats internally using Navigator.push, 
+          // we only need this button to act as a scanner if the connection is lost!
+          onAction: _startScan, 
+          onDisconnect: _disconnectNode, 
         );
         
       case AppState.chat:

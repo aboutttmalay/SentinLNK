@@ -6,6 +6,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/services/hardware_bridge.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ==========================================
 // 1. THE MAIN SETTINGS TAB
@@ -126,6 +127,86 @@ class SettingsTab extends StatelessWidget {
                       Text("Security & Encryption", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                       SizedBox(height: 4),
                       Text("Direct Message Keys, ECDH", style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                Icon(LucideIcons.chevronRight, color: AppColors.textDim, size: 20),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        // 👉 3. Tactical Commands Button
+        GestureDetector(
+          onTap: () {
+            if (!isConnected) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("🔴 UPLINK REQUIRED: Connect to a node first."), backgroundColor: Colors.orange),
+              );
+              return;
+            }
+            Navigator.push(context, MaterialPageRoute(builder: (context) => const TacticalCommandsScreen()));
+          },
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: const Row(
+              children: [
+                Icon(LucideIcons.zap, color: Colors.redAccent, size: 24),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("Tactical Commands", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
+                      Text("Manage Quick-Tap Canned Messages", style: TextStyle(color: AppColors.textDim, fontSize: 12)),
+                    ],
+                  ),
+                ),
+                Icon(LucideIcons.chevronRight, color: AppColors.textDim, size: 20),
+              ],
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        // 👉 4. User Configuration Button
+        GestureDetector(
+          onTap: () {
+            if (!isConnected) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("🔴 UPLINK REQUIRED: Connect to a node first."), backgroundColor: Colors.orange),
+              );
+              return;
+            }
+            Navigator.push(context, MaterialPageRoute(builder: (context) => const UserConfigScreen()));
+          },
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: const Row(
+              children: [
+                Icon(LucideIcons.user, color: Colors.blueAccent, size: 24),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text("User Configuration", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                      SizedBox(height: 4),
+                      Text("Node ID, Long Name, Short Name", style: TextStyle(color: AppColors.textDim, fontSize: 12)),
                     ],
                   ),
                 ),
@@ -716,6 +797,297 @@ class _SecurityConfigScreenState extends State<SecurityConfigScreen> {
               }
             );
           }
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 4. TACTICAL COMMANDS SCREEN (Quick-Tap)
+// ==========================================
+class TacticalCommandsScreen extends StatefulWidget {
+  const TacticalCommandsScreen({super.key});
+
+  @override
+  State<TacticalCommandsScreen> createState() => _TacticalCommandsScreenState();
+}
+
+class _TacticalCommandsScreenState extends State<TacticalCommandsScreen> {
+  List<String> _commands = [];
+  final TextEditingController _cmdController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCommands();
+  }
+
+  Future<void> _loadCommands() async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String>? saved = prefs.getStringList('tactical_commands');
+    if (saved == null || saved.isEmpty) {
+      // Default standard military codes if nothing is saved
+      saved = ["CONTACT FRONT", "MEDIC REQUIRED", "RALLY AT WAYPOINT", "BINGO AMMO"];
+      await prefs.setStringList('tactical_commands', saved);
+    }
+    setState(() {
+      _commands = saved!;
+    });
+  }
+
+  Future<void> _saveCommands() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('tactical_commands', _commands);
+  }
+
+  void _addCommand() {
+    if (_cmdController.text.trim().isNotEmpty) {
+      setState(() {
+        _commands.add(_cmdController.text.trim().toUpperCase());
+        _cmdController.clear();
+      });
+      _saveCommands();
+    }
+  }
+
+  void _removeCommand(int index) {
+    setState(() {
+      _commands.removeAt(index);
+    });
+    _saveCommands();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: AppBar(
+        backgroundColor: AppColors.surface,
+        elevation: 0,
+        leading: IconButton(icon: const Icon(LucideIcons.chevronLeft, color: Colors.white), onPressed: () => Navigator.pop(context)),
+        title: const Text("Tactical Commands", style: TextStyle(color: Colors.white, fontSize: 16, letterSpacing: 1)),
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _cmdController,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: InputDecoration(
+                      hintText: "ENTER NEW COMMAND",
+                      hintStyle: const TextStyle(color: AppColors.textDim),
+                      filled: true,
+                      fillColor: AppColors.surface,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14)
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  decoration: BoxDecoration(color: Colors.redAccent, borderRadius: BorderRadius.circular(8)),
+                  child: IconButton(
+                    icon: const Icon(LucideIcons.plus, color: Colors.white),
+                    onPressed: _addCommand,
+                  ),
+                )
+              ],
+            ),
+          ),
+          const Divider(color: AppColors.border),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.all(20),
+              itemCount: _commands.length,
+              itemBuilder: (context, index) {
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(child: Text(_commands[index], style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, letterSpacing: 1.2))),
+                      IconButton(
+                        icon: const Icon(LucideIcons.trash2, color: AppColors.textDim, size: 20),
+                        onPressed: () => _removeCommand(index),
+                      )
+                    ],
+                  ),
+                );
+              }
+            ),
+          )
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================
+// 5. USER CONFIGURATION SCREEN
+// ==========================================
+class UserConfigScreen extends StatefulWidget {
+  const UserConfigScreen({super.key});
+
+  @override
+  State<UserConfigScreen> createState() => _UserConfigScreenState();
+}
+
+class _UserConfigScreenState extends State<UserConfigScreen> {
+  final TextEditingController _longNameController = TextEditingController();
+  final TextEditingController _shortNameController = TextEditingController();
+  bool _isTransmitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill the inputs with the data we pulled from the hardware
+    _longNameController.text = HardwareBridge.instance.localLongName.value;
+    _shortNameController.text = HardwareBridge.instance.localShortName.value;
+  }
+
+  Future<void> _applyToRadio() async {
+    if (_longNameController.text.trim().isEmpty || _shortNameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("🔴 Names cannot be empty."), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _isTransmitting = true);
+    try {
+      await HardwareBridge.instance.setOwnerDetails(
+        _longNameController.text.trim(),
+        _shortNameController.text.trim(),
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("🟢 UPLINK SUCCESS: User profile flashed to radio!"), backgroundColor: Colors.green),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("🔴 UPLINK FAILED: $e"), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isTransmitting = false);
+    }
+  }
+
+  Widget _buildReadOnlyField(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: AppColors.textDim, fontSize: 12, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            color: AppColors.bg,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Text(value, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
+  Widget _buildEditableField(String label, TextEditingController controller, int maxLength) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: controller,
+          maxLength: maxLength,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          decoration: InputDecoration(
+            counterStyle: const TextStyle(color: AppColors.textDim),
+            filled: true,
+            fillColor: AppColors.surface,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14)
+          ),
+        ),
+        const SizedBox(height: 10),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      appBar: AppBar(
+        backgroundColor: AppColors.surface, elevation: 0,
+        leading: IconButton(icon: const Icon(LucideIcons.chevronLeft, color: Colors.white), onPressed: () => Navigator.pop(context)),
+        title: const Text("User Configuration", style: TextStyle(color: Colors.white, fontSize: 16, letterSpacing: 1)),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 🛡️ READ ONLY HARDWARE SPECS
+            ValueListenableBuilder<String>(
+              valueListenable: HardwareBridge.instance.localNodeId,
+              builder: (context, val, child) => _buildReadOnlyField("NODE ID (MAC ADDRESS)", val)
+            ),
+            
+            ValueListenableBuilder<String>(
+              valueListenable: HardwareBridge.instance.localHwModel,
+              builder: (context, val, child) => _buildReadOnlyField("HARDWARE MODEL", val.replaceAll('HW_', ''))
+            ),
+
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Divider(color: AppColors.border),
+            ),
+
+            // ✏️ EDITABLE CALLSIGNS
+            _buildEditableField("LONG NAME (CALLSIGN)", _longNameController, 30),
+            _buildEditableField("SHORT NAME (4 CHAR MAX)", _shortNameController, 4),
+
+            const SizedBox(height: 30),
+
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary, 
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))
+                ),
+                onPressed: _isTransmitting ? null : _applyToRadio,
+                icon: _isTransmitting 
+                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Icon(LucideIcons.cpu, color: Colors.white),
+                label: Text(
+                  _isTransmitting ? "FLASHING..." : "SAVE TO RADIO", 
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1)
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

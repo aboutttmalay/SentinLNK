@@ -563,7 +563,7 @@ class _SquadSetupDialogState extends State<SquadSetupDialog> {
           Row(
             children: [
               const Expanded(
-                child: Text("AES-256 (Maximum Security)", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                child: Text("AES-256", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, letterSpacing: 1.0)),
               ),
               IconButton(
                 icon: const Icon(LucideIcons.refreshCw, color: AppColors.primary),

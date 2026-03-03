@@ -29,6 +29,12 @@ class HardwareBridge {
   // 👉 NEW: Cryptography Trackers (Matches Official App Logic)
   final ValueNotifier<String> nodePublicKey = ValueNotifier("WAITING FOR UPLINK...");
   final ValueNotifier<String> nodePrivateKey = ValueNotifier("WAITING FOR UPLINK...");
+
+  // 👉 NEW: User Configuration Trackers
+  final ValueNotifier<String> localLongName = ValueNotifier("Fetching...");
+  final ValueNotifier<String> localShortName = ValueNotifier("...");
+  final ValueNotifier<String> localHwModel = ValueNotifier("...");
+  final ValueNotifier<String> localNodeId = ValueNotifier("...");
   
   bool _isSyncing = false; 
   bool _isReading = false;
@@ -185,6 +191,7 @@ class HardwareBridge {
          int nodeNum = fromRadio.myInfo.myNodeNum; 
          String myHex = "!${nodeNum.toRadixString(16).toLowerCase().padLeft(8, '0')}";
          NodeDatabase.instance.setLocalHardwareId(myHex);
+         localNodeId.value = myHex; // 👉 NEW: Save for UI
          return; 
       }
       if (fromRadio.hasNodeInfo()) {
@@ -253,6 +260,14 @@ class HardwareBridge {
              final user = User.fromBuffer(data.payload);
              final tempInfo = NodeInfo()..num = packet.from..user = user;
              NodeDatabase.instance.processDirectNodeInfo(tempInfo);
+
+             // 👉 NEW: If this packet is about OUR node, save the user info!
+             String senderHex = "!${packet.from.toRadixString(16).toLowerCase().padLeft(8, '0')}";
+             if (senderHex == NodeDatabase.instance.localNodeHexId) {
+                localLongName.value = user.longName;
+                localShortName.value = user.shortName;
+                localHwModel.value = user.hwModel.toString();
+             }
           }
           else if (data.portnum == PortNum.TELEMETRY_APP) {
              final telemetry = Telemetry.fromBuffer(data.payload);
@@ -490,6 +505,47 @@ class HardwareBridge {
       print("🟢 KEY REGENERATION COMMAND SENT. RADIO REBOOTING.");
     } catch (e) {
       print("🔴 ERROR REGENERATING KEYS: $e");
+    }
+  }
+
+  // =========================================================================
+  // 👤 SET USER/OWNER DETAILS (Long Name & Short Name)
+  // =========================================================================
+  Future<void> setOwnerDetails(String longName, String shortName) async {
+    if (_toRadioChar == null) return;
+    try {
+      print("🛡️ UPDATING NODE USER CONFIG...");
+      int localNodeNum = 0xFFFFFFFF; 
+      if (NodeDatabase.instance.localNodeHexId.isNotEmpty) {
+         localNodeNum = int.parse(NodeDatabase.instance.localNodeHexId.replaceAll('!', ''), radix: 16);
+      }
+
+      // Build the User object (We leave hwModel blank so the radio keeps its native model)
+      User updatedUser = User()
+        ..id = NodeDatabase.instance.localNodeHexId
+        ..longName = longName
+        ..shortName = shortName;
+
+      AdminMessage adminMsg = AdminMessage()..setOwner = updatedUser;
+      Data adminData = Data()..portnum = PortNum.ADMIN_APP..payload = adminMsg.writeToBuffer();
+        
+      MeshPacket adminPacket = MeshPacket()
+        ..to = localNodeNum
+        ..from = localNodeNum 
+        ..id = Random().nextInt(0x7FFFFFFF)
+        ..channel = 0 
+        ..decoded = adminData
+        ..wantAck = true;
+
+      await _toRadioChar!.write((ToRadio()..packet = adminPacket).writeToBuffer(), withoutResponse: false);
+      
+      // Update UI instantly
+      localLongName.value = longName;
+      localShortName.value = shortName;
+      
+      print("🟢 USER CONFIGURATION FLASHED TO HARDWARE.");
+    } catch (e) {
+      print("🔴 ERROR SETTING USER CONFIG: $e");
     }
   }
 }
