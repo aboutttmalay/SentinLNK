@@ -9,7 +9,6 @@ import 'package:meshtastic_flutter/generated/telemetry.pb.dart';
 import 'package:crypto/crypto.dart';
 import 'package:meshtastic_flutter/generated/channel.pb.dart';
 import 'package:meshtastic_flutter/generated/admin.pb.dart';
-// 👉 NEW: Required for extracting security keys
 import 'package:meshtastic_flutter/generated/config.pb.dart';
 
 import '../../data/models/node_database.dart';
@@ -196,6 +195,19 @@ class HardwareBridge {
       }
       if (fromRadio.hasNodeInfo()) {
          NodeDatabase.instance.processDirectNodeInfo(fromRadio.nodeInfo);
+         
+         // 👉 THE FIX: Catch the local node's identity from the hardware sync!
+         // The radio sends a list of all known nodes during connection. We look for the one matching our Node ID.
+         String nodeHex = "!${fromRadio.nodeInfo.num.toRadixString(16).toLowerCase().padLeft(8, '0')}";
+         
+         if (nodeHex == localNodeId.value || nodeHex == NodeDatabase.instance.localNodeHexId) {
+            if (fromRadio.nodeInfo.hasUser()) {
+               localLongName.value = fromRadio.nodeInfo.user.longName;
+               localShortName.value = fromRadio.nodeInfo.user.shortName;
+               localHwModel.value = fromRadio.nodeInfo.user.hwModel.toString();
+               print("👤 Local Node Identity Fetched: ${localLongName.value} (${localShortName.value})");
+            }
+         }
          return; 
       }
       if (fromRadio.hasConfigCompleteId()) { return; }
@@ -393,7 +405,7 @@ class HardwareBridge {
     }
   }
   // =========================================================================
-  // 🛡️ PHASE 1: NATIVE HARDWARE PROVISIONING (OFFICIAL FLOW REPLICA)
+  // 🛡️ PHASE 1: NATIVE HARDWARE PROVISIONING                                 
   // =========================================================================
   Future<void> provisionTacticalChannel(Channel squadChannel) async {
     if (_toRadioChar == null) {
